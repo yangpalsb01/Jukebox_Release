@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JukeSync</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <script src="/js/themes.js"></script>
+</head>
+<body class="room-page">
+
+  <!-- Hidden YouTube player -->
+  <div style="position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;">
+    <div id="yt-player"></div>
+  </div>
+
+  <!-- Top bar -->
+  <header class="room-header">
+    <a href="/" class="logo logo--sm">
+      <span class="logo-icon">♪</span>
+      <span class="logo-text">JukeSync</span>
+    </a>
+
+    <div class="room-info">
+      <!-- Editable room name (host only) -->
+      <div class="room-name-wrap" id="room-name-wrap">
+        <span class="room-name" id="room-name" title="클릭하여 이름 변경">...</span>
+        <span class="room-name-hint" id="room-name-hint" style="display:none;">✏️</span>
+      </div>
+
+      <div class="room-meta">
+        <span class="badge" id="host-badge" style="display:none;">🎛 호스트</span>
+        <button class="code-badge" id="copy-code">코드: <strong id="room-code">...</strong></button>
+        <button class="btn btn--sm btn--ghost" id="copy-link-btn">🔗 링크 복사</button>
+        <button class="btn btn--sm btn--danger" id="delete-room-btn" style="display:none;">🗑 방 삭제</button>
+      </div>
+    </div>
+
+    <div class="room-header-right">
+      <span class="nickname-display">
+        <svg class="nickname-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z" style="fill:var(--accent)"/></svg>
+        <span id="my-nickname"></span>
+      </span>
+    </div>
+  </header>
+
+  <!-- Host player bar -->
+  <div class="player-bar" id="player-bar" style="display:none;">
+    <div class="player-bar-top">
+      <div class="now-playing">
+        <div class="now-playing-art" id="now-playing-art">♪</div>
+        <div class="now-playing-info">
+          <p class="now-playing-title" id="now-playing-title">재생 중인 곡 없음</p>
+          <p class="now-playing-sub" id="now-playing-sub">—</p>
+        </div>
+      </div>
+      <div class="player-controls">
+        <button class="ctrl-btn" id="btn-shuffle" title="셔플">
+          <svg class="ctrl-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/>
+          </svg>
+        </button>
+        <button class="ctrl-btn" id="btn-prev" title="이전">⏮</button>
+        <button class="ctrl-btn ctrl-btn--main" id="btn-playpause">▶</button>
+        <button class="ctrl-btn" id="btn-next" title="다음">⏭</button>
+        <button class="ctrl-btn" id="btn-fadeout" title="페이드아웃 정지 (3초)">
+          <svg class="ctrl-svg" viewBox="0 0 24 24" fill="none">
+            <defs>
+              <linearGradient id="fade-grad" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="currentColor" stop-opacity="1"/>
+                <stop offset="100%" stop-color="currentColor" stop-opacity="0.1"/>
+              </linearGradient>
+            </defs>
+            <rect x="3" y="6" width="5" height="12" rx="1" fill="currentColor"/>
+            <rect x="10" y="6" width="5" height="12" rx="1" fill="url(#fade-grad)"/>
+            <rect x="17" y="6" width="4" height="12" rx="1" fill="currentColor" opacity="0.1"/>
+          </svg>
+        </button>
+        <button class="ctrl-btn" id="btn-repeat" title="반복">↻</button>
+      </div>
+      <div class="player-volume">
+        <span class="vol-icon">🔊</span>
+        <input type="range" id="volume-slider" min="0" max="100" value="80" class="vol-slider" />
+        <span class="vol-label" id="vol-label">80</span>
+      </div>
+    </div>
+    <div class="player-bar-timeline">
+      <span class="timeline-time" id="time-current">0:00</span>
+      <input type="range" id="timeline-slider" min="0" max="100" value="0" step="0.1" class="timeline-slider" />
+      <span class="timeline-time" id="time-duration">0:00</span>
+    </div>
+  </div>
+
+  <!-- Guest player bar (removed - info shown in big card below) -->
+
+  <!-- Main layout -->
+  <div class="room-layout">
+
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-resize-handle" id="sidebar-resize-handle"></div>
+      <div class="sidebar-header">
+        <span class="sidebar-title">플레이리스트</span>
+        <div style="display:flex;gap:0.1rem;">
+          <button class="btn btn--icon" id="import-playlist-btn" title="코드로 플레이리스트 불러오기" style="font-size:0.95rem;">⇩</button>
+          <button class="btn btn--icon" id="add-playlist-btn" title="플레이리스트 추가">＋</button>
+        </div>
+      </div>
+
+      <div id="playlist-list" class="playlist-list"></div>
+
+      <!-- Standalone queue -->
+      <div class="queue-section">
+        <div class="queue-header">
+          <span>개별 대기열</span>
+          <button class="btn btn--icon" id="add-queue-song-btn" title="곡 추가">＋</button>
+        </div>
+        <div id="queue-list" class="song-list song-list--queue"></div>
+      </div>
+    </aside>
+
+    <section class="chat-section" id="chat-section">
+      <div class="chat-section-header">활동 로그</div>
+      <div class="chat-log" id="chat-log"></div>
+      <div class="chat-theme-wrap">
+        <div class="theme-picker" id="theme-picker">
+          <button class="theme-picker-toggle" id="theme-picker-toggle" title="테마 변경">🎨</button>
+          <div class="theme-panel hidden" id="theme-panel">
+            <div class="theme-panel-header">
+              <button class="theme-tab active" data-tab="light">라이트</button>
+              <button class="theme-tab" data-tab="dark">다크</button>
+            </div>
+            <div class="theme-swatches" id="theme-swatches-light"></div>
+            <div class="theme-swatches hidden" id="theme-swatches-dark"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- YouTube Search Column -->
+    <section class="search-section" id="search-section">
+      <div class="search-resize-handle" id="search-resize-handle"></div>
+      <button class="search-collapse-btn" id="search-collapse-btn" title="검색창 접기/펼치기">‹</button>
+      <div class="search-inner" id="search-inner">
+        <div class="search-section-header">YouTube 검색</div>
+        <div class="search-input-wrap">
+          <input type="text" class="search-input" id="yt-search-input" placeholder="검색어 입력..." autocomplete="off" />
+          <button class="search-btn" id="yt-search-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+          </button>
+        </div>
+        <div class="search-results" id="yt-search-results">
+          <p class="search-hint">검색어를 입력하세요.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Guest view: only shows current song -->
+    <div class="guest-main" id="guest-main" style="display:none;">
+      <div class="guest-bg-blur" id="guest-bg-blur"></div>
+      <div class="guest-bg-overlay" id="guest-bg-overlay"></div>
+      <div class="guest-now-playing-card">
+        <p class="guest-label">now playing · · ·</p>
+        <div class="guest-big-art" id="guest-big-art">♪</div>
+        <p class="guest-big-title" id="guest-big-title">재생 중인 곡 없음</p>
+        <p class="guest-big-ch" id="guest-big-ch">—</p>
+        <div class="guest-playing-anim" id="guest-anim" style="display:none;">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <!-- Guest local volume control -->
+        <div class="guest-volume-wrap">
+          <span class="vol-icon">🔊</span>
+          <input type="range" id="guest-volume-slider" min="0" max="100" value="80" class="vol-slider" />
+          <span class="vol-label" id="guest-vol-label">80</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 게스트 입장 공지 모달 -->
+  <div class="modal hidden" id="guest-notice-modal">
+    <div class="modal-box">
+      <h3 style="text-align:center;">Welcome!</h3>
+      <ul class="tip-list">
+        <li>우측 하단의 팔레트 아이콘으로 테마를 변경할 수 있습니다. 본인에게만 지정되니 원하는 테마로 자유롭게 사용하세요.</li>
+        <li>볼륨 조절 역시 방 전체가 아닌 본인에게만 적용되는 볼륨이니 편하신대로 조절하시면 됩니다.</li>
+        <li>곡 제목을 누르면 해당 곡의 유튜브 링크가 새 창에서 열립니다. 마음에 드는 BGM을 쉽게 훔쳐보세요!</li>
+      </ul>
+      <div class="modal-actions">
+        <label class="notice-checkbox-wrap">
+          <input type="checkbox" id="guest-notice-no-show" />
+          오늘 하루 보지 않기
+        </label>
+        <button class="btn btn--primary" id="guest-notice-close">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Song Modal -->
+  <div class="modal hidden" id="add-song-modal">
+    <div class="modal-box">
+      <h3 id="add-song-modal-title">곡 추가</h3>
+      <input type="url" id="yt-url-input" class="input" placeholder="YouTube 링크 붙여넣기..." />
+      <p class="form-hint">예: https://www.youtube.com/watch?v=...</p>
+      <div id="add-song-preview" class="song-preview hidden"></div>
+      <div id="song-title-wrap" class="song-title-edit hidden">
+        <label class="field-label">곡 이름</label>
+        <input type="text" id="custom-title-input" class="input" placeholder="곡 이름..." maxlength="100" />
+        <div class="song-memo-edit">
+          <label class="field-label">메모 <span style="color:var(--text-light);font-weight:400;">(선택)</span></label>
+          <input type="text" id="custom-memo-input" class="input" placeholder="짧은 메모를 입력하세요..." maxlength="80" />
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn--primary" id="add-song-confirm">추가</button>
+        <button class="btn btn--ghost" id="add-song-cancel">취소</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Playlist Modal -->
+  <div class="modal hidden" id="import-playlist-modal">
+    <div class="modal-box">
+      <h3>플레이리스트 불러오기</h3>
+      <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.8rem;">공유 코드를 입력하면 현재 방에 플레이리스트가 추가됩니다.<br/>코드는 생성 후 24시간 동안 유효합니다.</p>
+      <input type="text" id="import-code-input" class="input" placeholder="공유 코드 입력 (예: A3F2K9)" maxlength="6" style="text-transform:uppercase;letter-spacing:0.15em;" />
+      <p class="form-error hidden" id="import-error"></p>
+      <div class="modal-actions">
+        <button class="btn btn--primary" id="import-playlist-confirm">불러오기</button>
+        <button class="btn btn--ghost" id="import-playlist-cancel">취소</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Share Code Popup -->
+  <div class="modal hidden" id="share-code-modal">
+    <div class="modal-box" style="max-width:320px;text-align:center;">
+      <h3>플레이리스트 공유</h3>
+      <p style="color:var(--text-muted);font-size:0.83rem;margin-bottom:1rem;">아래 코드를 친구에게 공유하세요.<br/>24시간 후 만료됩니다.</p>
+      <button class="share-code-display" id="share-code-value" title="클릭해서 클립보드에 복사"></button>
+      <p class="share-code-hint" id="share-code-hint">클릭하면 복사됩니다</p>
+      <div class="modal-actions" style="justify-content:center;margin-top:1.2rem;">
+        <button class="btn btn--ghost" id="share-code-close">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Playlist Modal -->
+  <div class="modal hidden" id="add-playlist-modal">
+    <div class="modal-box">
+      <h3>플레이리스트 만들기</h3>
+      <input type="text" id="new-playlist-name" class="input" placeholder="플레이리스트 이름..." maxlength="30" />
+      <div class="modal-actions">
+        <button class="btn btn--primary" id="create-playlist-confirm">만들기</button>
+        <button class="btn btn--ghost" id="create-playlist-cancel">취소</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Move Song Modal -->
+  <div class="modal hidden" id="move-song-modal">
+    <div class="modal-box">
+      <h3>곡 이동</h3>
+      <p style="color:var(--text-muted);font-size:0.87rem;margin-bottom:1rem;">이동할 위치를 선택하세요</p>
+      <div id="move-target-list" class="move-target-list"></div>
+      <div class="modal-actions">
+        <button class="btn btn--ghost" id="move-song-cancel">취소</button>
+      </div>
+    </div>
+  </div>
+
+
+
+  <script>
+    // ── 테마 피커 초기화 (room page) ──
+    (function() {
+      const lightContainer = document.getElementById('theme-swatches-light');
+      const darkContainer  = document.getElementById('theme-swatches-dark');
+      THEMES.forEach(theme => {
+        const sw = document.createElement('button');
+        sw.className = 'theme-swatch';
+        sw.dataset.themeId = theme.id;
+        sw.title = theme.name;
+        sw.style.background = `linear-gradient(135deg, ${theme.vars['--bg']} 50%, ${theme.vars['--accent']} 50%)`;
+        sw.style.borderColor = theme.vars['--border2'];
+        sw.addEventListener('click', () => applyTheme(theme.id));
+        (theme.dark ? darkContainer : lightContainer).appendChild(sw);
+      });
+      const cur = localStorage.getItem('jukesync-theme') || 'light-neutral';
+      document.querySelectorAll('.theme-swatch').forEach(el =>
+        el.classList.toggle('active', el.dataset.themeId === cur));
+      document.querySelectorAll('.theme-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.theme-tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          const isDark = tab.dataset.tab === 'dark';
+          document.getElementById('theme-swatches-light').classList.toggle('hidden', isDark);
+          document.getElementById('theme-swatches-dark').classList.toggle('hidden', !isDark);
+        });
+      });
+      document.getElementById('theme-picker-toggle').addEventListener('click', e => {
+        e.stopPropagation();
+        document.getElementById('theme-panel').classList.toggle('hidden');
+      });
+      document.addEventListener('click', e => {
+        if (!document.getElementById('theme-picker').contains(e.target))
+          document.getElementById('theme-panel').classList.add('hidden');
+      });
+    })();
+  </script>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/room.js"></script>
+</body>
+</html>

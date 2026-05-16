@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JukeSync</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <script src="/js/themes.js"></script>
+</head>
+<body class="lobby-page">
+
+  <header class="site-header">
+    <div class="logo">
+      <span class="logo-icon">♪</span>
+      <span class="logo-text">JukeSync</span>
+    </div>
+    <p class="tagline" style="display:none;"></p>
+</div>
+</div>
+  </header>
+
+  <main class="lobby-main">
+    <div class="card-grid">
+
+      <div class="card card--create">
+        <h2 class="card-title">새 방 만들기</h2>
+        <p class="card-desc">방을 생성하고 친구를 초대하세요.<br/>호스트는 모든 재생을 제어합니다.</p>
+        <div class="form-group">
+          <input type="text" id="room-name-input" class="input" placeholder="방 이름 입력..." maxlength="30" />
+          <input type="text" id="host-nickname-input" class="input" placeholder="닉네임 입력..." maxlength="20" />
+          <button class="btn btn--primary" id="create-room-btn">방 만들기</button>
+        </div>
+        <p class="form-error hidden" id="create-error"></p>
+      </div>
+
+      <div class="card card--join">
+        <h2 class="card-title">코드로 입장</h2>
+        <p class="card-desc">초대 코드를 입력해<br/>친구의 방에 참가하세요.</p>
+        <div class="form-group">
+          <input type="text" id="join-code-input" class="input input--code" placeholder="XXXXXX" maxlength="6" />
+          <input type="text" id="join-nickname-input" class="input" placeholder="닉네임 입력..." maxlength="20" />
+          <button class="btn btn--secondary" id="join-code-btn">입장하기</button>
+        </div>
+        <p class="form-error hidden" id="join-error"></p>
+      </div>
+
+    </div>
+
+    <section class="room-list-section">
+      <h3 class="section-title">열린 방 목록</h3>
+      <div id="room-list" class="room-list">
+        <p class="empty-hint">아직 열린 방이 없습니다.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- Join Modal -->
+  <div class="modal hidden" id="join-modal">
+    <div class="modal-box">
+      <h3 id="join-modal-title">방 입장</h3>
+      <input type="text" id="join-modal-nickname" class="input" placeholder="닉네임 입력..." maxlength="20" />
+      <div class="modal-actions">
+        <button class="btn btn--primary" id="join-modal-confirm">입장</button>
+        <button class="btn btn--ghost" id="join-modal-cancel">취소</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Room Confirm Modal -->
+  <div class="modal hidden" id="create-confirm-modal">
+    <div class="modal-box">
+      <h3>방을 만들기 전에 확인해주세요</h3>
+      <p style="color:var(--text-muted);font-size:0.85rem;margin:0.6rem 0 0.2rem;">입력하신 닉네임</p>
+      <p id="confirm-nickname-display" style="font-weight:700;font-size:1.1rem;color:var(--accent);margin-bottom:1rem;"></p>
+      <ul style="font-size:0.84rem;color:var(--text-muted);line-height:1.8;padding-left:1.1rem;margin-bottom:1.2rem;">
+        <li>이 닉네임을 기억해두세요. 재입장 시 같은 닉네임을 사용해야 호스트 권한이 유지됩니다.</li>
+        <li>닉네임을 잊어버린 경우 방 호스트에게 문의해주세요.</li>
+      </ul>
+      <div class="modal-actions">
+        <button class="btn btn--primary" id="create-confirm-ok">방 만들기</button>
+        <button class="btn btn--ghost" id="create-confirm-cancel">취소</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin Login Modal -->
+  <div class="modal hidden" id="admin-login-modal">
+    <div class="modal-box" style="max-width:320px;">
+      <h3>관리자 로그인</h3>
+      <input type="password" id="admin-pw-input" class="input" placeholder="비밀번호" style="margin-top:0.8rem;" />
+      <p class="form-error hidden" id="admin-pw-error">비밀번호가 틀렸습니다.</p>
+      <div class="modal-actions">
+        <button class="btn btn--primary" id="admin-login-confirm">확인</button>
+        <button class="btn btn--ghost" id="admin-login-cancel">취소</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin Info Modal -->
+  <div class="modal hidden" id="admin-info-modal">
+    <div class="modal-box" style="max-width:520px;">
+      <h3>방 목록 (관리자)</h3>
+      <div id="admin-room-list" style="margin-top:0.8rem;display:flex;flex-direction:column;gap:0.5rem;max-height:360px;overflow-y:auto;"></div>
+      <div class="modal-actions" style="justify-content:center;margin-top:1.2rem;">
+        <button class="btn btn--ghost" id="admin-info-close">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin Button (fixed bottom-left) -->
+  <div class="admin-fixed">
+    <button class="admin-fixed-btn" id="admin-btn" title="관리자">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Theme Picker -->
+  <div class="theme-picker" id="theme-picker">
+    <button class="theme-picker-toggle" id="theme-picker-toggle" title="테마 변경">🎨</button>
+    <div class="theme-panel hidden" id="theme-panel">
+      <div class="theme-panel-header">
+        <button class="theme-tab active" data-tab="light">라이트</button>
+        <button class="theme-tab" data-tab="dark">다크</button>
+      </div>
+      <div class="theme-swatches" id="theme-swatches-light"></div>
+      <div class="theme-swatches hidden" id="theme-swatches-dark"></div>
+    </div>
+  </div>
+
+  <script>
+    let ADMIN_PW = '';  // 로그인 시 입력값이 저장됩니다
+    let pendingRoomId = null;
+
+    // ── 방 목록 ──────────────────────────────────
+    async function loadRooms() {
+      try {
+        const res = await fetch('/api/rooms');
+        if (!res.ok) return;
+        const rooms = await res.json();
+        const list = document.getElementById('room-list');
+        if (!rooms || rooms.length === 0) {
+          list.innerHTML = '<p class="empty-hint">아직 열린 방이 없습니다.</p>';
+          return;
+        }
+        list.innerHTML = rooms.map(r => `
+          <div class="room-item" data-id="${esc(r.id)}">
+            <span class="room-item-name">${esc(r.name)}</span>
+            <button class="btn btn--sm btn--secondary" onclick="openJoinModal('${esc(r.id)}', '${esc(r.name)}')">입장</button>
+          </div>
+        `).join('');
+      } catch (e) {
+        // 서버 응답 없을 시 조용히 무시
+      }
+    }
+
+    loadRooms();
+    setInterval(loadRooms, 2000);
+
+    // ── 방 입장 모달 ──────────────────────────────
+    function openJoinModal(id, name) {
+      pendingRoomId = id;
+      document.getElementById('join-modal-title').textContent = `"${name}" 입장`;
+      document.getElementById('join-modal-nickname').value = '';
+      document.getElementById('join-modal').classList.remove('hidden');
+      setTimeout(() => document.getElementById('join-modal-nickname').focus(), 50);
+    }
+
+    document.getElementById('join-modal-confirm').onclick = () => {
+      const nick = document.getElementById('join-modal-nickname').value.trim();
+      if (!nick) { alert('닉네임을 입력해주세요.'); return; }
+      goToRoom(pendingRoomId, nick);
+    };
+    document.getElementById('join-modal-cancel').onclick = () =>
+      document.getElementById('join-modal').classList.add('hidden');
+
+    // ── 방 만들기 ─────────────────────────────────
+    document.getElementById('create-room-btn').onclick = () => {
+      const name = document.getElementById('room-name-input').value.trim();
+      const nick = document.getElementById('host-nickname-input').value.trim();
+      const err  = document.getElementById('create-error');
+      if (!name) { showError(err, '방 이름을 입력해주세요.'); return; }
+      if (!nick) { showError(err, '닉네임을 입력해주세요.'); return; }
+      document.getElementById('confirm-nickname-display').textContent = nick;
+      document.getElementById('create-confirm-modal').classList.remove('hidden');
+    };
+
+    document.getElementById('create-confirm-ok').onclick = async () => {
+      const name = document.getElementById('room-name-input').value.trim();
+      const nick = document.getElementById('host-nickname-input').value.trim();
+      const err  = document.getElementById('create-error');
+      document.getElementById('create-confirm-modal').classList.add('hidden');
+      try {
+        const res = await fetch('/api/rooms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, hostNickname: nick })
+        });
+        const data = await res.json();
+        if (data.error) { showError(err, data.error); return; }
+        goToRoom(data.id, nick);
+      } catch (e) {
+        showError(err, '서버 오류가 발생했습니다.');
+      }
+    };
+
+    document.getElementById('create-confirm-cancel').onclick = () =>
+      document.getElementById('create-confirm-modal').classList.add('hidden');
+
+    // ── 코드로 입장 ───────────────────────────────
+    document.getElementById('join-code-btn').onclick = async () => {
+      const code = document.getElementById('join-code-input').value.trim();
+      const nick = document.getElementById('join-nickname-input').value.trim();
+      const err  = document.getElementById('join-error');
+      if (!code) { showError(err, '입장 코드를 입력해주세요.'); return; }
+      if (!nick) { showError(err, '닉네임을 입력해주세요.'); return; }
+      try {
+        const res  = await fetch(`/api/rooms/code/${code}`);
+        const data = await res.json();
+        if (data.error) { showError(err, data.error); return; }
+        goToRoom(data.id, nick);
+      } catch (e) {
+        showError(err, '서버 오류가 발생했습니다.');
+      }
+    };
+
+    // ── 관리자 기능 ───────────────────────────────
+    document.getElementById('admin-btn').addEventListener('click', () => {
+      document.getElementById('admin-pw-input').value = '';
+      document.getElementById('admin-pw-error').classList.add('hidden');
+      document.getElementById('admin-login-modal').classList.remove('hidden');
+      setTimeout(() => document.getElementById('admin-pw-input').focus(), 50);
+    });
+
+    document.getElementById('admin-login-cancel').onclick = () =>
+      document.getElementById('admin-login-modal').classList.add('hidden');
+
+    document.getElementById('admin-login-confirm').onclick = async () => {
+      const pw = document.getElementById('admin-pw-input').value;
+      // 서버에 직접 인증 시도 — 클라이언트에 비밀번호를 보관하지 않습니다
+      const testRes = await fetch('/api/admin/rooms', {
+        headers: { 'x-admin-password': pw }
+      });
+      if (testRes.status === 401) {
+        document.getElementById('admin-pw-error').classList.remove('hidden');
+        return;
+      }
+      ADMIN_PW = pw;  // 인증 성공 시 세션 내 재사용을 위해 저장
+      document.getElementById('admin-login-modal').classList.add('hidden');
+      await refreshAdminRoomList();
+      document.getElementById('admin-info-modal').classList.remove('hidden');
+    };
+
+    document.getElementById('admin-pw-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('admin-login-confirm').click();
+    });
+
+    document.getElementById('admin-info-close').onclick = () =>
+      document.getElementById('admin-info-modal').classList.add('hidden');
+
+    // 상대 시간 포맷
+    function timeAgo(ts) {
+      if (!ts) return '기록 없음';
+      const diff = Math.floor((Date.now() - ts) / 1000);
+      if (diff < 60)   return '방금 전';
+      if (diff < 3600) return Math.floor(diff / 60) + '분 전';
+      if (diff < 86400) return Math.floor(diff / 3600) + '시간 전';
+      return Math.floor(diff / 86400) + '일 전';
+    }
+
+    // 인라인 편집 공통 함수
+    function makeEditable(el, onSave) {
+      el.style.cursor = 'pointer';
+      el.title = '클릭하여 편집';
+      el.addEventListener('click', function startEdit() {
+        const current = el.textContent;
+        const input = document.createElement('input');
+        input.value = current;
+        input.style.cssText = 'font-size:inherit;font-weight:inherit;color:var(--accent);background:var(--surface);border:1px solid var(--accent);border-radius:4px;padding:0.1rem 0.3rem;width:120px;';
+        el.replaceWith(input);
+        input.focus(); input.select();
+        async function commit() {
+          const val = input.value.trim();
+          const span = document.createElement('span');
+          span.textContent = val || current;
+          span.style.cssText = el.style.cssText;
+          input.replaceWith(span);
+          makeEditable(span, onSave);
+          if (val && val !== current) await onSave(val);
+        }
+        input.addEventListener('blur', commit);
+        input.addEventListener('keydown', e => {
+          if (e.key === 'Enter') input.blur();
+          if (e.key === 'Escape') { input.value = current; input.blur(); }
+        });
+      });
+    }
+
+    async function refreshAdminRoomList() {
+      try {
+        const res = await fetch('/api/admin/rooms', {
+          headers: { 'x-admin-password': ADMIN_PW }
+        });
+        const rooms = await res.json();
+        const container = document.getElementById('admin-room-list');
+        if (!rooms || !rooms.length) {
+          container.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">열린 방이 없습니다.</p>';
+          return;
+        }
+        container.innerHTML = '';
+        rooms.forEach(r => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;gap:0.5rem;padding:0.6rem 0.8rem;background:var(--surface2);border-radius:8px;font-size:0.84rem;';
+
+          // 방 이름 (인라인 편집)
+          const nameSpan = document.createElement('span');
+          nameSpan.textContent = r.name;
+          nameSpan.title = r.name;
+          nameSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:var(--text);';
+          makeEditable(nameSpan, async (val) => {
+            await fetch(`/api/admin/rooms/${r.id}/name`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', 'x-admin-password': ADMIN_PW },
+              body: JSON.stringify({ name: val })
+            });
+            loadRooms();
+          });
+
+          // 호스트 닉네임 (인라인 편집)
+          const hostWrap = document.createElement('span');
+          hostWrap.style.cssText = 'flex-shrink:0;color:var(--text-muted);white-space:nowrap;';
+          hostWrap.innerHTML = '호스트: ';
+          const nickSpan = document.createElement('strong');
+          nickSpan.textContent = r.hostNickname;
+          nickSpan.style.cssText = 'color:var(--accent);';
+          makeEditable(nickSpan, async (val) => {
+            await fetch(`/api/admin/rooms/${r.id}/host`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', 'x-admin-password': ADMIN_PW },
+              body: JSON.stringify({ hostNickname: val })
+            });
+          });
+          hostWrap.appendChild(nickSpan);
+
+          // 마지막 접속 시간
+          const timeSpan = document.createElement('span');
+          timeSpan.textContent = timeAgo(r.hostLastSeen);
+          timeSpan.style.cssText = 'flex-shrink:0;color:var(--text-light);font-size:0.78rem;white-space:nowrap;';
+
+          // 삭제 버튼
+          const delBtn = document.createElement('button');
+          delBtn.textContent = '✕';
+          delBtn.className = 'btn btn--sm btn--del';
+          delBtn.style.cssText = 'flex-shrink:0;border:1px solid var(--border);color:var(--text-muted);';
+          delBtn.addEventListener('click', async () => {
+            if (!confirm(`"${r.name}" 방을 삭제하겠습니까?`)) return;
+            try {
+              const delRes = await fetch(`/api/rooms/${r.id}/force`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: ADMIN_PW })
+              });
+              const data = await delRes.json();
+              if (data.error) { alert(data.error); return; }
+              await refreshAdminRoomList();
+              loadRooms();
+            } catch(e) { alert('삭제 중 오류가 발생했습니다.'); }
+          });
+
+          row.appendChild(nameSpan);
+          row.appendChild(hostWrap);
+          row.appendChild(timeSpan);
+          row.appendChild(delBtn);
+          container.appendChild(row);
+        });
+      } catch(e) {
+        document.getElementById('admin-room-list').innerHTML =
+          '<p style="color:var(--text-muted);font-size:0.85rem;">방 목록을 불러오지 못했습니다.</p>';
+      }
+    }
+
+    // ── 유틸 ─────────────────────────────────────
+    function goToRoom(id, nick) {
+      sessionStorage.setItem('nickname', nick);
+      window.location.href = `/room.html?id=${id}`;
+    }
+    function showError(el, msg) {
+      el.textContent = msg;
+      el.classList.remove('hidden');
+      setTimeout(() => el.classList.add('hidden'), 3000);
+    }
+    function esc(s) {
+      if (!s) return '';
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ── 키보드 단축키 ─────────────────────────────
+    document.getElementById('room-name-input').addEventListener('keydown', e => e.key === 'Enter' && document.getElementById('host-nickname-input').focus());
+    document.getElementById('host-nickname-input').addEventListener('keydown', e => e.key === 'Enter' && document.getElementById('create-room-btn').click());
+    document.getElementById('join-code-input').addEventListener('keydown', e => e.key === 'Enter' && document.getElementById('join-nickname-input').focus());
+    document.getElementById('join-nickname-input').addEventListener('keydown', e => e.key === 'Enter' && document.getElementById('join-code-btn').click());
+    document.getElementById('join-modal-nickname').addEventListener('keydown', e => e.key === 'Enter' && document.getElementById('join-modal-confirm').click());
+
+    // 모달 바깥 클릭 시 닫기
+    document.querySelectorAll('.modal').forEach(m => {
+      m.addEventListener('click', e => { if (e.target === m) m.classList.add('hidden'); });
+    });
+
+    // ── 테마 피커 초기화 ──────────────────────────
+    (function() {
+      const lightContainer = document.getElementById('theme-swatches-light');
+      const darkContainer  = document.getElementById('theme-swatches-dark');
+      THEMES.forEach(theme => {
+        const sw = document.createElement('button');
+        sw.className = 'theme-swatch';
+        sw.dataset.themeId = theme.id;
+        sw.title = theme.name;
+        sw.style.background = `linear-gradient(135deg, ${theme.vars['--bg']} 50%, ${theme.vars['--accent']} 50%)`;
+        sw.style.borderColor = theme.vars['--border2'];
+        sw.addEventListener('click', () => applyTheme(theme.id));
+        (theme.dark ? darkContainer : lightContainer).appendChild(sw);
+      });
+      const cur = localStorage.getItem('jukesync-theme') || 'light-neutral';
+      document.querySelectorAll('.theme-swatch').forEach(el =>
+        el.classList.toggle('active', el.dataset.themeId === cur));
+      document.querySelectorAll('.theme-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.theme-tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          const isDark = tab.dataset.tab === 'dark';
+          document.getElementById('theme-swatches-light').classList.toggle('hidden', isDark);
+          document.getElementById('theme-swatches-dark').classList.toggle('hidden', !isDark);
+        });
+      });
+      document.getElementById('theme-picker-toggle').addEventListener('click', e => {
+        e.stopPropagation();
+        document.getElementById('theme-panel').classList.toggle('hidden');
+      });
+      document.addEventListener('click', e => {
+        if (!document.getElementById('theme-picker').contains(e.target))
+          document.getElementById('theme-panel').classList.add('hidden');
+      });
+    })();
+  </script>
+</body>
+</html>

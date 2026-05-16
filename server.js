@@ -121,18 +121,19 @@ function getRoomByCode(code) {
 
 function sanitizeRoom(room) {
   return {
-    id:          room.id,
-    name:        room.name,
-    code:        room.code,
-    playlists:   room.playlists,
-    queue:       room.queue,
-    currentSong: room.currentSong,
-    isPlaying:   room.isPlaying,
-    currentTime: room.currentTime,
-    volume:      room.volume,
-    shuffle:     room.shuffle,
-    repeat:      room.repeat,
-    playMode:    room.playMode,
+    id:           room.id,
+    name:         room.name,
+    code:         room.code,
+    hostNickname: room.hostNickname,
+    playlists:    room.playlists,
+    queue:        room.queue,
+    currentSong:  room.currentSong,
+    isPlaying:    room.isPlaying,
+    currentTime:  room.currentTime,
+    volume:       room.volume,
+    shuffle:      room.shuffle,
+    repeat:       room.repeat,
+    playMode:     room.playMode,
   };
 }
 

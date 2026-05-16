@@ -60,6 +60,7 @@
     <div class="modal-box">
       <h3 id="join-modal-title">방 입장</h3>
       <input type="text" id="join-modal-nickname" class="input" placeholder="닉네임 입력..." maxlength="20" />
+      <p class="form-error hidden" id="join-modal-error"></p>
       <div class="modal-actions">
         <button class="btn btn--primary" id="join-modal-confirm">입장</button>
         <button class="btn btn--ghost" id="join-modal-cancel">취소</button>
@@ -165,17 +166,37 @@
       pendingRoomId = id;
       document.getElementById('join-modal-title').textContent = `"${name}" 입장`;
       document.getElementById('join-modal-nickname').value = '';
+      document.getElementById('join-modal-error').classList.add('hidden');
+      document.getElementById('join-modal-error').textContent = '';
       document.getElementById('join-modal').classList.remove('hidden');
       setTimeout(() => document.getElementById('join-modal-nickname').focus(), 50);
     }
 
-    document.getElementById('join-modal-confirm').onclick = () => {
-      const nick = document.getElementById('join-modal-nickname').value.trim();
-      if (!nick) { alert('닉네임을 입력해주세요.'); return; }
-      goToRoom(pendingRoomId, nick);
+    document.getElementById('join-modal-confirm').onclick = async () => {
+      const nick  = document.getElementById('join-modal-nickname').value.trim();
+      const errEl = document.getElementById('join-modal-error');
+      errEl.classList.add('hidden');
+      if (!nick) { errEl.textContent = '닉네임을 입력해주세요.'; errEl.classList.remove('hidden'); return; }
+      try {
+        const res  = await fetch(`/api/rooms/${pendingRoomId}`);
+        const data = await res.json();
+        if (data.error) { errEl.textContent = data.error; errEl.classList.remove('hidden'); return; }
+        if (nick !== data.hostNickname) {
+          errEl.textContent = '닉네임이 일치하지 않습니다.';
+          errEl.classList.remove('hidden');
+          return;
+        }
+        goToRoom(pendingRoomId, nick);
+      } catch (e) {
+        errEl.textContent = '서버 오류가 발생했습니다.';
+        errEl.classList.remove('hidden');
+      }
     };
-    document.getElementById('join-modal-cancel').onclick = () =>
+    document.getElementById('join-modal-cancel').onclick = () => {
       document.getElementById('join-modal').classList.add('hidden');
+      document.getElementById('join-modal-error').classList.add('hidden');
+      document.getElementById('join-modal-error').textContent = '';
+    };
 
     // ── 방 만들기 ─────────────────────────────────
     document.getElementById('create-room-btn').onclick = () => {

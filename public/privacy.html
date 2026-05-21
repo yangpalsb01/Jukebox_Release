@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>개인정보처리방침 - JukeSync</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <script src="/js/themes.js"></script>
+</head>
+<body class="lobby-page">
+
+  <header class="site-header">
+    <div class="logo">
+      <span class="logo-icon">♪</span>
+      <span class="logo-text">JukeSync</span>
+    </div>
+    <nav>
+      <a href="/" class="btn btn--sm btn--secondary">← 메인으로</a>
+    </nav>
+  </header>
+
+  <main class="lobby-main" style="max-width:680px; margin:0 auto; padding:2rem 1.5rem;">
+    <h2>개인정보처리방침</h2>
+
+    <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:2rem;">최종 수정일: 2025년 5월</p>
+
+    <section style="margin-bottom:2rem;">
+      <h3>1. 수집하는 정보</h3>
+      <p>JukeSync는 서비스 제공에 필요한 최소한의 정보만 처리합니다.</p>
+      <ul style="padding-left:1.2rem; line-height:2;">
+        <li>방 이름, 호스트 닉네임 (사용자가 직접 입력)</li>
+        <li>플레이리스트 및 곡 정보 (YouTube 영상 ID, 제목, 메모)</li>
+        <li>공유 플레이리스트 코드 (24시간 후 자동 삭제)</li>
+        <li>테마 설정, 볼륨, 사이드바 너비 (브라우저 localStorage에만 저장, 서버 전송 없음)</li>
+      </ul>
+      <p>이메일, 전화번호, 실명 등 개인 식별 정보는 수집하지 않습니다.</p>
+    </section>
+
+    <section style="margin-bottom:2rem;">
+      <h3>2. YouTube API 서비스 사용</h3>
+      <p>본 서비스는 YouTube API 서비스를 사용합니다. YouTube API 서비스를 통해 수집되는 데이터는 <a href="http://www.google.com/policies/privacy" target="_blank" rel="noopener">Google 개인정보처리방침</a>의 적용을 받습니다.</p>
+      <p>본 서비스를 사용함으로써 사용자는 <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube 서비스 약관</a>의 적용을 받는 데 동의하는 것으로 간주됩니다.</p>
+    </section>
+
+    <section style="margin-bottom:2rem;">
+      <h3>3. 정보의 보관 및 삭제</h3>
+      <p>방 정보는 서비스 운영 중 MongoDB에 저장됩니다. 방이 삭제되면 관련 데이터도 함께 삭제됩니다. 공유 플레이리스트 코드는 생성 후 24시간이 경과하면 자동으로 삭제됩니다.</p>
+    </section>
+
+    <section style="margin-bottom:2rem;">
+      <h3>4. 제3자 제공</h3>
+      <p>수집된 정보는 서비스 운영 목적 외에 제3자에게 제공되지 않습니다.</p>
+    </section>
+
+    <section style="margin-bottom:2rem;">
+      <h3>5. 문의</h3>
+      <p>개인정보 처리에 관한 문의는 본 서비스의 운영자에게 연락해주세요.</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>본 서비스는 YouTube API 서비스를 사용합니다. 사용 시 <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube 서비스 약관</a>이 적용됩니다.</p>
+    <p><a href="/privacy" target="_blank" rel="noopener">개인정보처리방침</a>&nbsp;·&nbsp;<a href="http://www.google.com/policies/privacy" target="_blank" rel="noopener">Google 개인정보처리방침</a></p>
+  </footer>
+
+</body>
+</html>

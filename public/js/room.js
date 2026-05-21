@@ -36,6 +36,7 @@ socket.on('connect', () => {
 socket.on('error', msg => toast(msg, 'error'));
 
 socket.on('room-state', state => {
+  initMiniPlayer();
   roomState = state;
   isHost    = state.isHost;
 
@@ -97,6 +98,12 @@ socket.on('room-state', state => {
       tp.style.right    = '1.5rem';
       tp.style.zIndex   = '3000';
     }
+    // 게스트: 미니 플레이어를 body로 이동 후 fixed 배치
+    const mp = document.getElementById('mini-player-wrap');
+    if (mp && mp.parentElement !== document.body) {
+      document.body.appendChild(mp);
+    }
+    updateMiniPlayerPosition();
     // 게스트 입장 공지 모달 (오늘 하루 보지 않기)
     const GUEST_NOTICE_KEY = 'jukesync-guest-notice-date';
     const today = new Date().toISOString().slice(0, 10);
@@ -912,6 +919,50 @@ function log(msg, type = 'system') {
 
 // ── Toast ─────────────────────────────────────────
 
+// ── 미니 플레이어 ──────────────────────────────────────
+const MINI_PLAYER_KEY = 'jukesync-mini-player-open';
+
+function initMiniPlayer() {
+  const toggle = document.getElementById('mini-player-toggle');
+  const body   = document.getElementById('mini-player-body');
+  const icon   = document.getElementById('mini-player-toggle-icon');
+  if (!toggle || !body) return;
+
+  // 저장된 상태 복원 (기본값: 닫힘)
+  const isOpen = localStorage.getItem(MINI_PLAYER_KEY) === '1';
+  if (isOpen) {
+    body.classList.add('open');
+    icon.textContent = '▼ 영상 숨기기';
+  } else {
+    icon.textContent = '▶ 영상 보기';
+  }
+
+  toggle.addEventListener('click', () => {
+    const opening = !body.classList.contains('open');
+    body.classList.toggle('open');
+    icon.textContent = opening ? '▼ 영상 숨기기' : '▶ 영상 보기';
+    localStorage.setItem(MINI_PLAYER_KEY, opening ? '1' : '0');
+  });
+}
+
+function updateMiniPlayerPosition() {
+  const wrap = document.getElementById('mini-player-wrap');
+  if (!wrap) return;
+  if (isHost) {
+    wrap.classList.remove('mini-player-fixed');
+    return;
+  }
+  // 게스트: fixed 배치, 화면 우측 하단
+  wrap.classList.add('mini-player-fixed');
+  const searchSection = document.getElementById('search-section');
+  if (searchSection && !searchSection.classList.contains('collapsed')) {
+    const w = searchSection.getBoundingClientRect().width;
+    wrap.style.right = (w + 24) + 'px';
+  } else {
+    wrap.style.right = '1.5rem';
+  }
+}
+
 function toast(msg, type = 'info', large = false) {
   const t = document.createElement('div');
   t.className = `toast toast--${type}${large ? ' toast--large' : ''}`;
@@ -1113,6 +1164,7 @@ document.getElementById('import-code-input').addEventListener('keydown', e => {
       const savedWidth = localStorage.getItem('jukesync-search-width');
       if (savedWidth) section.style.width = savedWidth + 'px';
     }
+    updateMiniPlayerPosition();
   });
 
   // ── 드래그 리사이즈 ──

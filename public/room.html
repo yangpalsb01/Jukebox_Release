@@ -11,9 +11,7 @@
 <body class="room-page">
 
   <!-- Hidden YouTube player -->
-  <div style="position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;">
-    <div id="yt-player"></div>
-  </div>
+
 
   <!-- Top bar -->
   <header class="room-header">
@@ -135,6 +133,14 @@
           </div>
         </div>
       </div>
+      <div class="mini-player-wrap" id="mini-player-wrap">
+        <button class="mini-player-toggle" id="mini-player-toggle" title="영상 보기/숨기기">
+          <span id="mini-player-toggle-icon">▶ 영상 보기</span>
+        </button>
+        <div class="mini-player-body" id="mini-player-body">
+          <div id="yt-player"></div>
+        </div>
+      </div>
     </section>
 
     <!-- YouTube Search Column -->
@@ -185,6 +191,7 @@
     <div class="modal-box">
       <h3 style="text-align:center;">Welcome!</h3>
       <ul class="tip-list">
+        <li>방장의 원활한 디제잉을 위해 영상 보기에 표시되는 유튜브 플레이어는 가급적 건드리지 말아주세요.</li>
         <li>우측 하단의 팔레트 아이콘으로 테마를 변경할 수 있습니다. 본인에게만 지정되니 원하는 테마로 자유롭게 사용하세요.</li>
         <li>볼륨 조절 역시 방 전체가 아닌 본인에게만 적용되는 볼륨이니 편하신대로 조절하시면 됩니다.</li>
         <li>곡 제목을 누르면 해당 곡의 유튜브 링크가 새 창에서 열립니다. 마음에 드는 BGM을 쉽게 훔쳐보세요!</li>

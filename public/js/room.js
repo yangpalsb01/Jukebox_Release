@@ -130,6 +130,72 @@ socket.on('room-state', state => {
   log(`"${state.name}" 방에 입장했습니다. 코드: ${state.code}`, 'system');
 });
 
+socket.on('resync-state', state => {
+  if (!roomState) return; // 아직 최초 room-state를 못 받은 상태면 무시 (곧 room-state가 옴)
+
+  roomState.volume    = state.volume;
+  roomState.shuffle   = state.shuffle;
+  roomState.repeat    = state.repeat;
+  roomState.playlists = state.playlists;
+  roomState.queue     = state.queue;
+
+  applyVolume(state.volume);
+  const volSliderEl = document.getElementById('volume-slider');
+  if (volSliderEl) volSliderEl.value = state.volume;
+  updateShuffleBtn(state.shuffle);
+  updateRepeatBtn(state.repeat);
+  renderPlaylists(state.playlists);
+  renderQueue(state.queue);
+
+  const prevSong = roomState.currentSong;
+  roomState.currentSong = state.currentSong;
+  roomState.isPlaying   = state.isPlaying;
+  roomState.currentTime = state.currentTime;
+
+  if (!state.currentSong) {
+    if (ytPlayer && ytReady) ytPlayer.stopVideo();
+    updateNowPlaying(null);
+    highlightCurrentSong(null);
+    updatePlayBtn(false);
+    return;
+  }
+
+  updateNowPlaying(state.currentSong);
+  highlightCurrentSong(state.currentSong.id);
+
+  if (!ytPlayer || !ytReady) { pendingPlay = { videoId: state.currentSong.videoId, time: state.currentTime }; return; }
+
+  let loadedVideoId = null;
+  try { loadedVideoId = ytPlayer.getVideoData()?.video_id || null; } catch (e) { /* 플레이어 초기화 전일 수 있음 */ }
+
+  const songChanged = !prevSong || prevSong.videoId !== state.currentSong.videoId || loadedVideoId !== state.currentSong.videoId;
+
+  if (songChanged) {
+    // 끊긴 사이 곡이 바뀐 경우 — 새로 로드
+    playYT(state.currentSong.videoId, state.currentTime);
+    if (!state.isPlaying) { setTimeout(() => ytPlayer.pauseVideo(), 300); }
+    updatePlayBtn(state.isPlaying);
+    return;
+  }
+
+  // 같은 곡이면 재생/일시정지 상태와 시간 드리프트만 바로잡는다 (불필요한 재시작 방지)
+  const actuallyPlaying = ytPlayer.getPlayerState() === YT.PlayerState.PLAYING;
+  if (state.isPlaying && !actuallyPlaying) {
+    ytPlayer.seekTo(state.currentTime, true);
+    if (isHost) { ytPlayer.unMute(); ytPlayer.setVolume(state.volume ?? 80); ytPlayer.playVideo(); }
+    else if (audioUnlocked) { ytPlayer.unMute(); ytPlayer.setVolume(calcGuestVolume()); ytPlayer.playVideo(); }
+    else { ytPlayer.mute(); showUnlockBanner(); }
+  } else if (!state.isPlaying && actuallyPlaying) {
+    ytPlayer.pauseVideo();
+    ytPlayer.seekTo(state.currentTime, true);
+  } else if (state.isPlaying && actuallyPlaying) {
+    // 드리프트가 크면(3초 이상)만 보정 — 작은 오차는 자연스럽게 두어 끊김을 줄인다
+    const drift = Math.abs((ytPlayer.getCurrentTime() || 0) - state.currentTime);
+    if (drift > 3) ytPlayer.seekTo(state.currentTime, true);
+  }
+  updatePlayBtn(state.isPlaying);
+});
+
 socket.on('room-renamed', ({ name }) => {
   if (roomState) roomState.name = name;
   document.getElementById('room-name').textContent = name;

@@ -62,6 +62,13 @@ function cancelPendingLeave(roomId, nickname) {
   }
 }
 
+// 재생 중일 때 lastTimeUpdate 이후 흐른 시간을 더해 "지금 시점" 재생 위치를 계산한다.
+function getSyncedCurrentTime(room) {
+  if (!room.isPlaying) return room.currentTime;
+  const elapsed = (Date.now() - (room.lastTimeUpdate || Date.now())) / 1000;
+  return room.currentTime + Math.max(0, elapsed);
+}
+
 async function loadRoomsFromDB() {
   const docs = await roomsCol.find({}).toArray();
   docs.forEach(doc => {
@@ -339,6 +346,17 @@ io.on('connection', (socket) => {
     } else {
       socket.isHost = false;
     }
+
+    socket.emit('resync-state', {
+      currentSong: room.currentSong,
+      isPlaying:   room.isPlaying,
+      currentTime: getSyncedCurrentTime(room),
+      volume:      room.volume,
+      shuffle:     room.shuffle,
+      repeat:      room.repeat,
+      playlists:   room.playlists,
+      queue:       room.queue,
+    });
   });
 
   socket.on('join-room', ({ roomId, nickname }) => {

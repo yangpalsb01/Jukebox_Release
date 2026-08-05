@@ -45,6 +45,23 @@ async function connectDB() {
 // ──────────────────────────────────────────────
 const rooms = {};
 
+// ──────────────────────────────────────────────
+// disconnect 유예 처리
+// disconnect 발생 시 바로 user-left를 쏘지 않고 LEAVE_GRACE_MS만큼 기다렸다가,
+// 그 안에 같은 닉네임으로 join-room/rejoin-room이 들어오면 취소한다.
+// ──────────────────────────────────────────────
+const pendingLeaves = {};
+const LEAVE_GRACE_MS = 5000;
+
+function cancelPendingLeave(roomId, nickname) {
+  if (!roomId || !nickname) return;
+  const key = `${roomId}::${nickname}`;
+  if (pendingLeaves[key]) {
+    clearTimeout(pendingLeaves[key]);
+    delete pendingLeaves[key];
+  }
+}
+
 async function loadRoomsFromDB() {
   const docs = await roomsCol.find({}).toArray();
   docs.forEach(doc => {
@@ -313,6 +330,7 @@ io.on('connection', (socket) => {
     socket.join(roomId);
     socket.roomId   = roomId;
     socket.nickname = nickname || 'Guest';
+    cancelPendingLeave(roomId, socket.nickname);
     if (nickname && nickname.trim() === room.hostNickname) {
       room.hostSocketId = socket.id;
       room.hostLastSeen = Date.now();
@@ -330,6 +348,7 @@ io.on('connection', (socket) => {
     socket.join(roomId);
     socket.roomId  = roomId;
     socket.nickname = nickname || 'Guest';
+    cancelPendingLeave(roomId, socket.nickname);
 
     if (nickname && nickname.trim() === room.hostNickname) {
       room.hostSocketId = socket.id;
@@ -630,10 +649,22 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const room = rooms[socket.roomId];
     if (!room) return;
-    io.to(socket.roomId).emit('user-left', { nickname: socket.nickname });
     if (room.hostSocketId === socket.id) {
       room.hostSocketId = null;
     }
+
+    const roomId   = socket.roomId;
+    const nickname = socket.nickname;
+    if (!nickname) return;
+
+    // 즉시 퇴장 처리하지 않고 잠깐 기다린다.
+    // 네트워크가 순간적으로 끊겼다가 자동 재연결(rejoin-room)되면
+    // cancelPendingLeave()가 이 타이머를 취소하므로 "퇴장" 로그가 찍히지 않는다.
+    const key = `${roomId}::${nickname}`;
+    pendingLeaves[key] = setTimeout(() => {
+      delete pendingLeaves[key];
+      io.to(roomId).emit('user-left', { nickname });
+    }, LEAVE_GRACE_MS);
   });
 });
 

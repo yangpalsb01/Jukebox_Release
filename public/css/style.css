@@ -705,6 +705,20 @@ a { color: var(--accent); text-decoration: none; }
   color: var(--text-muted);
   margin-top: 1.2rem;
 }
+.share-songlist-btn {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0.2rem 0.5rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-family: 'Noto Sans KR', sans-serif;
+  letter-spacing: normal;
+  transition: color 0.12s;
+}
+.share-songlist-btn:hover { color: var(--text); }
 
 /* ── Export/Import 아이콘 크기 통일 ── */
 .js-export-pl {

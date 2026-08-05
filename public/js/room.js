@@ -1000,11 +1000,14 @@ document.getElementById('custom-memo-input').addEventListener('keydown', e => { 
 
 // ── Playlist Export / Import ──────────────────────
 
+let _currentSharePl = null;
+
 async function exportPlaylist(pl) {
+  _currentSharePl = pl;
   const btn = document.getElementById('share-code-value');
   const hint = document.getElementById('share-code-hint');
   btn.textContent = '생성 중...';
-  hint.textContent = '클릭하면 복사됩니다';
+  hint.textContent = '코드를 클릭하면 복사됩니다';
   document.getElementById('share-code-modal').classList.remove('hidden');
 
   try {
@@ -1027,12 +1030,35 @@ document.getElementById('share-code-value').addEventListener('click', () => {
   if (!code || code === '생성 중...') return;
   navigator.clipboard.writeText(code).then(() => {
     document.getElementById('share-code-hint').textContent = '✅ 복사되었습니다!';
-    setTimeout(() => { document.getElementById('share-code-hint').textContent = '클릭하면 복사됩니다'; }, 2000);
+    setTimeout(() => { document.getElementById('share-code-hint').textContent = '코드를 클릭하면 복사됩니다'; }, 2000);
   });
 });
 
 document.getElementById('share-code-close').addEventListener('click', () => {
   document.getElementById('share-code-modal').classList.add('hidden');
+});
+
+document.getElementById('share-songlist-btn').addEventListener('click', () => {
+  const pl = _currentSharePl;
+  const btn = document.getElementById('share-songlist-btn');
+  if (!pl || !pl.songs || pl.songs.length === 0) {
+    btn.textContent = '곡이 없습니다.';
+    setTimeout(() => { btn.textContent = '곡 목록을 텍스트로 복사'; }, 2000);
+    return;
+  }
+  const lines = [`🎵 ${pl.name}`, ''];
+  pl.songs.forEach((song, i) => {
+    lines.push(`${i + 1}. ${song.title}${song.channel ? ' - ' + song.channel : ''}`);
+    lines.push(`   https://www.youtube.com/watch?v=${song.videoId}`);
+    lines.push('');
+  });
+  navigator.clipboard.writeText(lines.join('\n').trimEnd()).then(() => {
+    btn.textContent = '✅ 곡 목록이 복사되었습니다!';
+    setTimeout(() => { btn.textContent = '곡 목록을 텍스트로 복사'; }, 2500);
+  }).catch(() => {
+    btn.textContent = '복사에 실패했습니다.';
+    setTimeout(() => { btn.textContent = '곡 목록을 텍스트로 복사'; }, 2000);
+  });
 });
 
 // 불러오기 버튼

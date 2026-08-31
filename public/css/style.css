@@ -324,7 +324,11 @@ a { color: var(--accent); text-decoration: none; }
 
 /* Layout */
 .room-layout { display: grid; grid-template-columns: 420px minmax(200px,1fr) auto; flex: 1; overflow: hidden; }
-@media (max-width: 700px) { .room-layout { grid-template-columns: 1fr; } .chat-section { display: none; } }
+@media (max-width: 700px) {
+  .room-layout { grid-template-columns: 1fr; }
+  .chat-section { overflow-y: auto; }
+  .search-section { display: none; }
+}
 
 /* Sidebar */
 .sidebar { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }

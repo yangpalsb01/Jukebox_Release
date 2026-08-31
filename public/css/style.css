@@ -323,7 +323,7 @@ a { color: var(--accent); text-decoration: none; }
 .guest-status { display: flex; flex-direction: column; align-items: center; gap: 0.2rem; color: var(--text-muted); font-size: 1.3rem; }
 
 /* Layout */
-.room-layout { display: grid; grid-template-columns: 420px 1fr auto; flex: 1; overflow: hidden; }
+.room-layout { display: grid; grid-template-columns: 420px minmax(200px,1fr) auto; flex: 1; overflow: hidden; }
 @media (max-width: 700px) { .room-layout { grid-template-columns: 1fr; } .chat-section { display: none; } }
 
 /* Sidebar */
@@ -1163,9 +1163,14 @@ a { color: var(--accent); text-decoration: none; }
 .mini-player-body iframe {
   display: block;
   width: 100% !important;
-  aspect-ratio: 16 / 9;
+  height: 200px !important; /* 유튜브 정책상 최소 200x200 뷰포트 확보 */
   border: none;
-  min-height: 113px;
+}
+.mini-player-slot { border-bottom: 1px solid var(--border); }
+.mini-player-slot:last-child { border-bottom: none; }
+.mini-player-slot-label {
+  font-size: 0.68rem; color: var(--text-muted); padding: 0.25rem 0.5rem;
+  background: var(--surface3); text-transform: uppercase; letter-spacing: 0.05em;
 }
 
 /* 게스트 모드: mini-player fixed 배치 */
@@ -1187,9 +1192,35 @@ a { color: var(--accent); text-decoration: none; }
 }
 .mini-player-fixed .mini-player-body.open iframe {
   width: 200px !important;
-  height: 113px !important;
+  height: 200px !important; /* 유튜브 정책상 최소 200x200 뷰포트 확보 */
+}
+.mini-player-fixed .mini-player-body.open {
+  max-height: calc(100vh - 8rem);
+  overflow-y: auto;
+}
+.mini-player-fixed .mini-player-body.open .mini-player-slot:last-child iframe {
   border-radius: 0 0 6px 6px;
 }
+
+
+/* ── 엠비언스(효과음) 패널 ──────────────────────── */
+.ambience-panel { border-top: 1px solid var(--border); flex-shrink: 0; background: var(--surface2); }
+.ambience-toggle {
+  width: 100%; padding: 0.45rem 0.8rem;
+  background: none; border: none; cursor: pointer;
+  font-size: 0.8rem; color: var(--text-muted);
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: 'Noto Sans KR', sans-serif;
+  transition: background 0.1s, color 0.1s;
+}
+.ambience-toggle:hover { background: var(--surface3); color: var(--text); }
+#ambience-toggle-icon { font-size: 1.5rem; line-height: 1; }
+.ambience-body { padding: 0.7rem 0.8rem 0.9rem; border-top: 1px solid var(--border); }
+.ambience-select-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.6rem; }
+.ambience-title { font-size: 0.8rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.ambience-controls { display: flex; align-items: center; gap: 0.5rem; }
+.ambience-vol-icon { font-size: 0.85rem; }
+.ambience-controls .vol-slider { flex: 1; }
 
 /* ── site-footer ────────────────────────────────── */
 .site-footer {

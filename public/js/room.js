@@ -14,6 +14,8 @@ let isHost      = false;
 let roomState   = null;
 let ytPlayer    = null;
 let ytReady     = false;
+let ambPlayer   = null;
+let ambReady    = false;
 let pendingPlay = null;
 let addSongTargetPlaylistId = null; // null = standalone queue
 let songEndedLock = false; // 중복 song-ended 방지
@@ -66,6 +68,7 @@ socket.on('room-state', state => {
   }
 
   applyVolume(state.volume);
+  if (state.ambience) applyAmbienceState(state.ambience);
   const volSliderEl = document.getElementById('volume-slider');
   if (volSliderEl) volSliderEl.value = state.volume;
   updateShuffleBtn(state.shuffle);
@@ -146,6 +149,7 @@ socket.on('resync-state', state => {
   updateRepeatBtn(state.repeat);
   renderPlaylists(state.playlists);
   renderQueue(state.queue);
+  if (state.ambience) applyAmbienceState(state.ambience);
 
   const prevSong = roomState.currentSong;
   roomState.currentSong = state.currentSong;
@@ -194,6 +198,17 @@ socket.on('resync-state', state => {
     if (drift > 3) ytPlayer.seekTo(state.currentTime, true);
   }
   updatePlayBtn(state.isPlaying);
+});
+
+socket.on('ambience-update', amb => applyAmbienceState(amb));
+
+socket.on('ambience-volume', ({ volume }) => {
+  if (roomState && roomState.ambience) roomState.ambience.volume = volume;
+  const volSlider = document.getElementById('ambience-volume-slider');
+  if (volSlider) volSlider.value = volume;
+  if (ambPlayer && ambReady) {
+    setAmbVolumeTracked(isHost ? volume : calcGuestAmbienceVolume());
+  }
 });
 
 socket.on('room-renamed', ({ name }) => {
@@ -344,6 +359,45 @@ window.onYouTubeIframeAPIReady = function () {
       }
     }
   });
+
+  // 앰비언스(효과음) 전용 보조 플레이어 — 메인과 완전히 독립적으로 동작
+  ambPlayer = new YT.Player('amb-player', {
+    height: '200', width: '200',
+    playerVars: { autoplay: 0, controls: 0, mute: 1, disablekb: 1 },
+    events: {
+      onReady: () => {
+        ambReady = true;
+        if (isHost) {
+          ambPlayer.unMute();
+          ambPlayer.setVolume(roomState?.ambience?.volume ?? 60);
+        }
+        if (roomState && roomState.ambience) applyAmbienceState(roomState.ambience);
+      },
+      onError: () => {
+        toast('⚠️ 효과음 재생 오류가 발생했습니다.', 'error');
+      },
+      onStateChange: e => {
+        if (e.data === YT.PlayerState.ENDED) {
+          ambPlayer.seekTo(0, true);
+          ambPlayer.playVideo();
+        }
+        if (e.data === YT.PlayerState.PLAYING) {
+          if (roomState && roomState.ambience && !roomState.ambience.isPlaying) {
+            ambPlayer.pauseVideo();
+          } else if (ambPendingFadeIn) {
+            ambPendingFadeIn = false;
+            const target = isHost ? (roomState?.ambience?.volume ?? 60) : calcGuestAmbienceVolume();
+            fadeAmbVolume(0, target);
+          }
+        }
+        if (e.data === YT.PlayerState.PAUSED) {
+          if (!isHost && roomState && roomState.ambience && roomState.ambience.isPlaying) {
+            ambPlayer.playVideo();
+          }
+        }
+      }
+    }
+  });
 };
 
 const ytScript = document.createElement('script');
@@ -352,6 +406,118 @@ document.head.appendChild(ytScript);
 
 let audioUnlocked = false;
 let pendingBanner  = false; // ytReady 전에 room-state가 먼저 도착한 경우를 위한 플래그
+
+// ── 앰비언스(효과음) ────────────────────────────────
+function applyAmbienceState(amb) {
+  if (roomState) roomState.ambience = amb;
+
+  const titleEl   = document.getElementById('ambience-current-title');
+  const playBtn   = document.getElementById('ambience-play-btn');
+  const volSlider = document.getElementById('ambience-volume-slider');
+  if (titleEl) titleEl.textContent = (amb && amb.videoId) ? amb.title : '선택된 곡 없음';
+  if (playBtn) {
+    playBtn.disabled = !(amb && amb.videoId);
+    playBtn.textContent = (amb && amb.isPlaying) ? '⏸' : '▶';
+  }
+  if (volSlider && amb) volSlider.value = amb.volume;
+
+  if (!ambPlayer || !ambReady) return;
+  if (!amb || !amb.videoId) { ambPlayer.stopVideo(); return; }
+
+  if (!amb.isPlaying) {
+    const wasPlaying = ambPlayer.getPlayerState() === YT.PlayerState.PLAYING;
+    if (wasPlaying) fadeOutAndPauseAmb();
+    return;
+  }
+
+  let loadedId = null;
+  try { loadedId = ambPlayer.getVideoData()?.video_id || null; } catch (e) {}
+
+  if (loadedId !== amb.videoId) {
+    ambPlayer.loadVideoById({ videoId: amb.videoId, startSeconds: amb.currentTime || 0 });
+    setTimeout(() => {
+      if (!roomState?.ambience?.isPlaying) return;
+      applyAmbMuteState();
+      fadeInAmbAfterPlay();
+    }, 150);
+    return;
+  }
+
+  applyAmbMuteState();
+  const actuallyPlaying = ambPlayer.getPlayerState() === YT.PlayerState.PLAYING;
+  if (!actuallyPlaying) {
+    ambPlayer.seekTo(amb.currentTime, true);
+    ambPlayer.playVideo();
+    fadeInAmbAfterPlay();
+  } else {
+    const drift = Math.abs((ambPlayer.getCurrentTime() || 0) - amb.currentTime);
+    if (drift > 3) ambPlayer.seekTo(amb.currentTime, true);
+  }
+}
+
+function applyAmbMuteState() {
+  if (!ambPlayer || !ambReady) return;
+  if (isHost || audioUnlocked) {
+    ambPlayer.unMute();
+    setAmbVolumeTracked(isHost ? (roomState?.ambience?.volume ?? 60) : calcGuestAmbienceVolume());
+  } else {
+    ambPlayer.mute();
+    showUnlockBanner();
+  }
+}
+
+let ambFadeInterval   = null;
+let ambCurrentVolume  = 0;
+let ambPendingFadeIn  = false;
+const AMB_FADE_MS      = 2000;
+const AMB_FADE_STEP_MS = 50;
+
+function setAmbVolumeTracked(v) {
+  ambCurrentVolume = v;
+  if (ambPlayer && ambReady) ambPlayer.setVolume(v);
+}
+
+function fadeAmbVolume(fromVolume, toVolume, onDone) {
+  if (!ambPlayer || !ambReady) { if (onDone) onDone(); return; }
+  clearInterval(ambFadeInterval);
+  const steps = Math.max(1, Math.round(AMB_FADE_MS / AMB_FADE_STEP_MS));
+  let step = 0;
+  ambFadeInterval = setInterval(() => {
+    step++;
+    const t = step / steps;
+    const vol = Math.round(fromVolume + (toVolume - fromVolume) * t);
+    setAmbVolumeTracked(Math.max(0, Math.min(100, vol)));
+    if (step >= steps) {
+      clearInterval(ambFadeInterval);
+      ambFadeInterval = null;
+      if (onDone) onDone();
+    }
+  }, AMB_FADE_STEP_MS);
+}
+
+function fadeOutAndPauseAmb() {
+  if (!ambPlayer || !ambReady) return;
+  ambPendingFadeIn = false;
+  const canHear = isHost || audioUnlocked;
+  if (!canHear) { ambPlayer.pauseVideo(); return; }
+  fadeAmbVolume(ambCurrentVolume, 0, () => ambPlayer.pauseVideo());
+}
+
+function fadeInAmbAfterPlay() {
+  if (!ambPlayer || !ambReady) return;
+  const canHear = isHost || audioUnlocked;
+  if (!canHear) return;
+  setAmbVolumeTracked(0);
+  ambPendingFadeIn = true;
+}
+
+// 게스트의 로컬 슬라이더는 BGM뿐 아니라 효과음에도 동일한 비율로 적용된다.
+function calcGuestAmbienceVolume() {
+  const masterVol   = roomState?.ambience?.volume ?? 60;
+  const guestSlider = document.getElementById('guest-volume-slider');
+  const localVol    = guestSlider ? parseInt(guestSlider.value) : 100;
+  return Math.round((masterVol / 100) * localVol);
+}
 
 function playYT(videoId, time) {
   if (!ytReady) { pendingPlay = { videoId, time }; return; }
@@ -380,6 +546,15 @@ function unlockAudio() {
     // 영상이 로드된 상태이고 호스트가 재생 중일 때만 재생 시도
     if (ytPlayer.getPlayerState() === YT.PlayerState.PAUSED && roomState?.isPlaying) {
       ytPlayer.playVideo();
+    }
+  }
+  // 앰비언스도 함께 언뮤트
+  if (ambPlayer && ambReady && roomState?.ambience?.videoId) {
+    ambPlayer.unMute();
+    setAmbVolumeTracked(isHost ? (roomState?.ambience?.volume ?? 60) : calcGuestAmbienceVolume());
+    if (ambPlayer.getPlayerState() !== YT.PlayerState.PLAYING && roomState?.ambience?.isPlaying) {
+      ambPlayer.seekTo(roomState.ambience.currentTime || 0, true);
+      ambPlayer.playVideo();
     }
   }
   hideUnlockBanner();
@@ -534,6 +709,9 @@ if (guestVolSlider) {
     const label = document.getElementById('guest-vol-label');
     if (label) label.textContent = e.target.value;
     if (ytPlayer && ytReady) ytPlayer.setVolume(calcGuestVolume());
+    if (ambPlayer && ambReady && audioUnlocked && roomState?.ambience?.videoId) {
+      setAmbVolumeTracked(calcGuestAmbienceVolume());
+    }
   };
 }
 
@@ -1099,6 +1277,96 @@ document.getElementById('share-code-value').addEventListener('click', () => {
     setTimeout(() => { document.getElementById('share-code-hint').textContent = '코드를 클릭하면 복사됩니다'; }, 2000);
   });
 });
+
+// ── 엠비언스 UI 이벤트 ────────────────────────────
+const ambienceToggle = document.getElementById('ambience-toggle');
+if (ambienceToggle) {
+  ambienceToggle.addEventListener('click', () => {
+    const body = document.getElementById('ambience-body');
+    const icon = document.getElementById('ambience-toggle-icon');
+    body.classList.toggle('hidden');
+    icon.textContent = body.classList.contains('hidden') ? '▸' : '▾';
+  });
+
+  document.getElementById('ambience-play-btn').addEventListener('click', () => {
+    if (!roomState?.ambience?.videoId) return;
+    if (roomState.ambience.isPlaying) {
+      const t = (ambPlayer && ambReady) ? ambPlayer.getCurrentTime() : roomState.ambience.currentTime;
+      socket.emit('pause-ambience', { time: t });
+    } else {
+      socket.emit('play-ambience');
+    }
+  });
+
+  const ambVolSlider = document.getElementById('ambience-volume-slider');
+  ambVolSlider.addEventListener('input', () => {
+    socket.emit('ambience-volume', { volume: parseInt(ambVolSlider.value, 10) });
+  });
+
+  // ── 곡 선택 모달 (2단계: 재생목록 -> 곡) ──
+  const pickerModal = document.getElementById('ambience-picker-modal');
+  const pickerList  = document.getElementById('ambience-picker-list');
+  const pickerDesc  = document.getElementById('ambience-picker-desc');
+  const pickerBack  = document.getElementById('ambience-picker-back');
+
+  function renderAmbiencePlaylistStep() {
+    pickerDesc.textContent = '재생목록을 선택하세요';
+    pickerBack.classList.add('hidden');
+    pickerBack.onclick = null;
+    pickerList.innerHTML = '';
+    const playlists = roomState?.playlists || [];
+    if (playlists.length === 0) {
+      const p = document.createElement('p');
+      p.style.cssText = 'color:var(--text-muted);font-size:0.85rem;';
+      p.textContent = '재생목록이 없습니다. 먼저 재생목록을 만들어주세요.';
+      pickerList.appendChild(p);
+      return;
+    }
+    playlists.forEach(pl => {
+      const btn = document.createElement('button');
+      btn.className = 'move-target-btn';
+      btn.textContent = `${pl.name} (${(pl.songs || []).length}곡)`;
+      btn.onclick = () => renderAmbienceSongStep(pl);
+      pickerList.appendChild(btn);
+    });
+  }
+
+  function renderAmbienceSongStep(playlist) {
+    pickerDesc.textContent = `${playlist.name} — 곡을 선택하세요`;
+    pickerBack.classList.remove('hidden');
+    pickerBack.onclick = renderAmbiencePlaylistStep;
+    pickerList.innerHTML = '';
+    const songs = playlist.songs || [];
+    if (songs.length === 0) {
+      const p = document.createElement('p');
+      p.style.cssText = 'color:var(--text-muted);font-size:0.85rem;';
+      p.textContent = '이 재생목록에는 곡이 없습니다.';
+      pickerList.appendChild(p);
+      return;
+    }
+    songs.forEach(song => {
+      const btn = document.createElement('button');
+      btn.className = 'move-target-btn';
+      btn.textContent = song.title;
+      btn.onclick = () => {
+        socket.emit('set-ambience', { song: { videoId: song.videoId, title: song.title } });
+        pickerModal.classList.add('hidden');
+      };
+      pickerList.appendChild(btn);
+    });
+  }
+
+  document.getElementById('ambience-select-btn').addEventListener('click', () => {
+    renderAmbiencePlaylistStep();
+    pickerModal.classList.remove('hidden');
+  });
+  document.getElementById('ambience-picker-cancel').addEventListener('click', () => {
+    pickerModal.classList.add('hidden');
+  });
+  pickerModal.addEventListener('click', e => {
+    if (e.target === pickerModal) pickerModal.classList.add('hidden');
+  });
+}
 
 document.getElementById('share-code-close').addEventListener('click', () => {
   document.getElementById('share-code-modal').classList.add('hidden');

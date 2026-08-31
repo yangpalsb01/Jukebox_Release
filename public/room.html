@@ -115,6 +115,24 @@
         </div>
         <div id="queue-list" class="song-list song-list--queue"></div>
       </div>
+      <!-- Ambience (효과음) — 재생목록 곡 중 하나를 골라 반복 재생하는 보조 플레이어 -->
+      <div class="ambience-panel" id="ambience-panel">
+        <button class="ambience-toggle" id="ambience-toggle">
+          <span>🌧 효과음</span>
+          <span id="ambience-toggle-icon">▸</span>
+        </button>
+        <div class="ambience-body hidden" id="ambience-body">
+          <div class="ambience-select-row">
+            <span id="ambience-current-title" class="ambience-title">선택된 곡 없음</span>
+            <button class="btn btn--ghost" id="ambience-select-btn">곡 선택</button>
+          </div>
+          <div class="ambience-controls">
+            <button class="btn btn--icon" id="ambience-play-btn" title="재생/일시정지" disabled>▶</button>
+            <span class="ambience-vol-icon">🔊</span>
+            <input type="range" id="ambience-volume-slider" min="0" max="100" value="60" class="vol-slider" />
+          </div>
+        </div>
+      </div>
     </aside>
 
     <section class="chat-section" id="chat-section">
@@ -138,7 +156,14 @@
           <span id="mini-player-toggle-icon">▶ 영상 보기</span>
         </button>
         <div class="mini-player-body" id="mini-player-body">
-          <div id="yt-player"></div>
+          <div class="mini-player-slot">
+            <div class="mini-player-slot-label">BGM</div>
+            <div id="yt-player"></div>
+          </div>
+          <div class="mini-player-slot mini-player-slot--amb" id="mini-player-amb-slot">
+            <div class="mini-player-slot-label">🌧 효과음</div>
+            <div id="amb-player"></div>
+          </div>
         </div>
       </div>
     </section>
@@ -238,6 +263,19 @@
       <div class="modal-actions">
         <button class="btn btn--primary" id="import-playlist-confirm">불러오기</button>
         <button class="btn btn--ghost" id="import-playlist-cancel">취소</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ambience Song Picker Modal (2단계: 재생목록 -> 곡) -->
+  <div class="modal hidden" id="ambience-picker-modal">
+    <div class="modal-box">
+      <h3 id="ambience-picker-title">효과음으로 쓸 곡 선택</h3>
+      <p style="color:var(--text-muted);font-size:0.87rem;margin-bottom:1rem;" id="ambience-picker-desc">재생목록을 선택하세요</p>
+      <button class="btn btn--ghost hidden" id="ambience-picker-back" style="margin-bottom:0.6rem;">← 재생목록으로</button>
+      <div id="ambience-picker-list" class="move-target-list" style="max-height:300px;overflow-y:auto;"></div>
+      <div class="modal-actions">
+        <button class="btn btn--ghost" id="ambience-picker-cancel">취소</button>
       </div>
     </div>
   </div>

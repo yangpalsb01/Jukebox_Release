@@ -414,6 +414,41 @@ io.on('connection', (socket) => {
     io.to(socket.roomId).emit('volume', { volume });
   }));
 
+  // ── 앰비언스(효과음) ──
+  socket.on('set-ambience', ({ song }) => hostAction(room => {
+    if (!song || !song.videoId) return;
+    room.ambience = {
+      videoId: song.videoId,
+      title:   song.title,
+      isPlaying: true,
+      currentTime: 0,
+      volume: room.ambience?.volume ?? 60,
+      lastTimeUpdate: Date.now(),
+    };
+    io.to(socket.roomId).emit('ambience-update', room.ambience);
+    saveRoomDebounced(room);
+  }));
+
+  socket.on('play-ambience', () => hostAction(room => {
+    if (!room.ambience || !room.ambience.videoId) return;
+    room.ambience.isPlaying = true;
+    room.ambience.lastTimeUpdate = Date.now();
+    io.to(socket.roomId).emit('ambience-update', room.ambience);
+  }));
+
+  socket.on('pause-ambience', ({ time } = {}) => hostAction(room => {
+    if (!room.ambience) return;
+    room.ambience.isPlaying = false;
+    if (time !== undefined) room.ambience.currentTime = time;
+    io.to(socket.roomId).emit('ambience-update', room.ambience);
+  }));
+
+  socket.on('ambience-volume', ({ volume }) => hostAction(room => {
+    if (!room.ambience) return;
+    room.ambience.volume = volume;
+    io.to(socket.roomId).emit('ambience-volume', { volume });
+  }));
+
   socket.on('play-song', ({ song, playMode }) => hostAction(room => {
     room.currentSong   = song;
     room.currentTime   = 0;

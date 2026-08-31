@@ -324,11 +324,7 @@ a { color: var(--accent); text-decoration: none; }
 
 /* Layout */
 .room-layout { display: grid; grid-template-columns: 420px minmax(200px,1fr) auto; flex: 1; overflow: hidden; }
-@media (max-width: 700px) {
-  .room-layout { grid-template-columns: 1fr; }
-  .chat-section { overflow-y: auto; }
-  .search-section { display: none; }
-}
+@media (max-width: 700px) { .room-layout { grid-template-columns: 1fr; } .chat-section { display: none; } }
 
 /* Sidebar */
 .sidebar { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
@@ -420,7 +416,7 @@ a { color: var(--accent); text-decoration: none; }
 .song-list--queue { overflow-y: auto; padding: 0.15rem; }
 
 /* Chat */
-.chat-section { background: var(--bg2); display: flex; flex-direction: column; overflow: hidden; }
+.chat-section { background: var(--bg2); display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; }
 .chat-section-header {
   padding: 0.65rem 1rem; border-bottom: 1px solid var(--border);
   background: var(--surface); font-size: 0.7rem; text-transform: uppercase;

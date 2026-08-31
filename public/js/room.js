@@ -1446,6 +1446,73 @@ document.getElementById('import-code-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('import-playlist-confirm').click();
 });
 
+// ── 레이아웃 리사이즈 공통: 중앙 활동 로그 최소 폭 보장 ──
+const CENTER_MIN_WIDTH = 200;
+
+function getSearchSectionWidth() {
+  const search = document.getElementById('search-section');
+  if (!search || search.classList.contains('collapsed')) return 0;
+  return search.getBoundingClientRect().width || parseInt(search.style.width) || 0;
+}
+
+function getSidebarWidth() {
+  const sidebar = document.getElementById('sidebar');
+  if (!sidebar) return 0;
+  return sidebar.getBoundingClientRect().width || parseInt(sidebar.style.width) || 0;
+}
+
+// 사이드바/검색창 너비를 한 번에 같이 계산해서 확정한다.
+// (예전에는 두 함수가 서로의 "현재" 렌더링 너비를 각자 따로 읽어가며 계산했는데,
+//  드래그 중처럼 값이 빠르게 바뀌는 상황에서는 그 상호 참조 때문에 진동이 생길 수 있었다.
+//  창 너비 하나의 스냅샷을 기준으로 두 값을 한 번에 확정하면 그 문제가 사라진다.)
+function enforceLayoutMinimums() {
+  const sidebar = document.getElementById('sidebar');
+  const search  = document.getElementById('search-section');
+  if (!sidebar) return;
+
+  const total = window.innerWidth;
+  const searchCollapsed = !search || search.classList.contains('collapsed');
+
+  const sidebarWish = getSidebarWidth();
+  const searchWish  = searchCollapsed ? 0 : getSearchSectionWidth();
+
+  // 1) 사이드바: 활동 로그 최소 200px을 뺀 나머지 안에서 희망 너비까지
+  const sidebarFinal = Math.max(0, Math.min(sidebarWish, total - CENTER_MIN_WIDTH));
+  // 2) 검색창: 사이드바 확정값 + 활동 로그 200px을 뺀 나머지 안에서 희망 너비까지
+  const searchFinal  = searchCollapsed ? 0 : Math.max(0, Math.min(searchWish, total - sidebarFinal - CENTER_MIN_WIDTH));
+
+  if (sidebarFinal !== sidebarWish) {
+    sidebar.style.width = sidebarFinal + 'px';
+    localStorage.setItem('jukesync-sidebar-width', sidebarFinal);
+  }
+  const layout = document.querySelector('.room-layout');
+  if (layout) layout.style.gridTemplateColumns = `${sidebarFinal}px 1fr auto`;
+
+  if (!searchCollapsed && searchFinal !== searchWish) {
+    search.style.width    = searchFinal + 'px';
+    search.style.minWidth = searchFinal < 200 ? searchFinal + 'px' : '';
+    localStorage.setItem('jukesync-search-width', searchFinal);
+  }
+}
+
+function clampSidebarToViewport() { enforceLayoutMinimums(); }
+function clampSearchToViewport()  { enforceLayoutMinimums(); }
+
+let layoutClampRAF = null;
+function scheduleLayoutClamp() {
+  if (layoutClampRAF) cancelAnimationFrame(layoutClampRAF);
+  // 창 드래그 중 resize가 매우 짧은 간격으로 연달아 발생하면, 레이아웃이 아직
+  // 확정되기 전 값을 읽어 계산이 어긋날 수 있다. 다음 프레임까지 미뤄서
+  // 브라우저가 레이아웃을 확정한 뒤의 값을 읽도록 한다.
+  layoutClampRAF = requestAnimationFrame(() => {
+    layoutClampRAF = null;
+    clampSidebarToViewport();
+    clampSearchToViewport();
+  });
+}
+
+window.addEventListener('resize', scheduleLayoutClamp);
+
 // ── Sidebar Resize ───────────────────────────
 (function() {
   const sidebar = document.getElementById('sidebar');
@@ -1462,6 +1529,8 @@ document.getElementById('import-code-input').addEventListener('keydown', e => {
     const layout = document.querySelector('.room-layout');
     if (layout) layout.style.gridTemplateColumns = `${saved}px 1fr auto`;
   }
+  // 저장된 값이 현재 창 크기(또는 검색창 상태)와 안 맞을 수 있으니 로드 시 한 번 보정
+  clampSidebarToViewport();
 
   handle.addEventListener('mousedown', e => {
     e.preventDefault();
@@ -1470,7 +1539,9 @@ document.getElementById('import-code-input').addEventListener('keydown', e => {
     const startWidth = sidebar.getBoundingClientRect().width;
 
     function onMouseMove(e) {
-      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + e.clientX - startX));
+      // 검색창(펼쳐져 있다면 그 너비)과 활동 로그 최소 200px을 뺀 나머지가 상한
+      const dynamicMax = window.innerWidth - getSearchSectionWidth() - CENTER_MIN_WIDTH;
+      const newWidth = Math.min(MAX_WIDTH, dynamicMax, Math.max(MIN_WIDTH, startWidth + e.clientX - startX));
       sidebar.style.width = newWidth + 'px';
       const layout = document.querySelector('.room-layout');
       if (layout) layout.style.gridTemplateColumns = `${newWidth}px 1fr auto`;
@@ -1506,6 +1577,8 @@ document.getElementById('import-code-input').addEventListener('keydown', e => {
   // 너비 복원
   const savedWidth = localStorage.getItem(WIDTH_KEY);
   if (savedWidth) section.style.width = savedWidth + 'px';
+  // 저장된 값이 현재 창 크기(또는 사이드바 상태)와 안 맞을 수 있으니 로드 시 한 번 보정
+  clampSearchToViewport();
 
   // 접기 상태 복원
   if (localStorage.getItem(COLLAPSED_KEY) === '1') {
@@ -1523,6 +1596,9 @@ document.getElementById('import-code-input').addEventListener('keydown', e => {
     if (!isCollapsed) {
       const savedWidth = localStorage.getItem('jukesync-search-width');
       if (savedWidth) section.style.width = savedWidth + 'px';
+      clampSearchToViewport();
+    } else {
+      // 검색창이 접혀 공간이 생겼으니, 사이드바가 넓어질 수 있는지는 다시 줄일 필요 없음(그대로 둠)
     }
     updateMiniPlayerPosition();
   });
@@ -1537,8 +1613,11 @@ document.getElementById('import-code-input').addEventListener('keydown', e => {
 
     function onMove(e) {
       const delta    = startX - e.clientX; // 왼쪽으로 드래그 = 넓어짐
-      const newWidth = Math.min(700, Math.max(200, startWidth + delta));
-      section.style.width = newWidth + 'px';
+      // 사이드바 너비와 활동 로그 최소 200px을 뺀 나머지가 상한 (활동 로그가 검색창보다 우선)
+      const dynamicMax = window.innerWidth - getSidebarWidth() - CENTER_MIN_WIDTH;
+      const newWidth = Math.min(700, dynamicMax, Math.max(0, startWidth + delta));
+      section.style.width    = newWidth + 'px';
+      section.style.minWidth = newWidth < 200 ? newWidth + 'px' : '';
     }
     function onUp() {
       resizeHandle.classList.remove('dragging');

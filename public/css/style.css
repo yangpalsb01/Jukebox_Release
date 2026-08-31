@@ -323,7 +323,7 @@ a { color: var(--accent); text-decoration: none; }
 .guest-status { display: flex; flex-direction: column; align-items: center; gap: 0.2rem; color: var(--text-muted); font-size: 1.3rem; }
 
 /* Layout */
-.room-layout { display: grid; grid-template-columns: 420px minmax(200px,1fr) auto; flex: 1; overflow: hidden; }
+.room-layout { display: grid; grid-template-columns: 420px 1fr auto; flex: 1; overflow: hidden; }
 @media (max-width: 700px) { .room-layout { grid-template-columns: 1fr; } .chat-section { display: none; } }
 
 /* Sidebar */

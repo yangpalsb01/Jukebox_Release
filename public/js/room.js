@@ -14,9 +14,9 @@ let isHost      = false;
 let roomState   = null;
 let ytPlayer    = null;
 let ytReady     = false;
+let pendingPlay = null;
 let ambPlayer   = null;
 let ambReady    = false;
-let pendingPlay = null;
 let addSongTargetPlaylistId = null; // null = standalone queue
 let songEndedLock = false; // 중복 song-ended 방지
 let moveSongData = null;
@@ -28,6 +28,10 @@ if (!ROOM_ID) window.location.href = '/';
 // ── Socket ────────────────────────────────────────
 const socket = io();
 
+document.addEventListener('DOMContentLoaded', () => {
+  initMiniPlayer();
+});
+
 socket.on('connect', () => {
   if (!roomState) {
     socket.emit('join-room', { roomId: ROOM_ID, nickname: NICKNAME });
@@ -38,7 +42,6 @@ socket.on('connect', () => {
 socket.on('error', msg => toast(msg, 'error'));
 
 socket.on('room-state', state => {
-  initMiniPlayer();
   roomState = state;
   isHost    = state.isHost;
 
@@ -68,7 +71,6 @@ socket.on('room-state', state => {
   }
 
   applyVolume(state.volume);
-  if (state.ambience) applyAmbienceState(state.ambience);
   const volSliderEl = document.getElementById('volume-slider');
   if (volSliderEl) volSliderEl.value = state.volume;
   updateShuffleBtn(state.shuffle);
@@ -81,6 +83,7 @@ socket.on('room-state', state => {
     updateNowPlaying(state.currentSong);
     if (state.isPlaying) playYT(state.currentSong.videoId, state.currentTime);
   }
+  if (state.ambience) applyAmbienceState(state.ambience);
   // isHost 확정 후 처리
   if (isHost) {
     // 호스트: ytReady 상태면 즉시 unMute (mute:1 초기화 상태 해제)
@@ -101,7 +104,7 @@ socket.on('room-state', state => {
       tp.style.right    = '1.5rem';
       tp.style.zIndex   = '3000';
     }
-    // 게스트: 미니 플레이어를 body로 이동 후 fixed 배치
+    // 게스트: 미니 플레이어를 body로 이동 후 테마 버튼 아래 fixed 배치
     const mp = document.getElementById('mini-player-wrap');
     if (mp && mp.parentElement !== document.body) {
       document.body.appendChild(mp);
@@ -136,9 +139,9 @@ socket.on('room-state', state => {
 socket.on('resync-state', state => {
   if (!roomState) return; // 아직 최초 room-state를 못 받은 상태면 무시 (곧 room-state가 옴)
 
-  roomState.volume    = state.volume;
-  roomState.shuffle   = state.shuffle;
-  roomState.repeat    = state.repeat;
+  roomState.volume  = state.volume;
+  roomState.shuffle = state.shuffle;
+  roomState.repeat  = state.repeat;
   roomState.playlists = state.playlists;
   roomState.queue     = state.queue;
 
@@ -149,12 +152,13 @@ socket.on('resync-state', state => {
   updateRepeatBtn(state.repeat);
   renderPlaylists(state.playlists);
   renderQueue(state.queue);
-  if (state.ambience) applyAmbienceState(state.ambience);
 
   const prevSong = roomState.currentSong;
   roomState.currentSong = state.currentSong;
   roomState.isPlaying   = state.isPlaying;
   roomState.currentTime = state.currentTime;
+
+  if (state.ambience) applyAmbienceState(state.ambience);
 
   if (!state.currentSong) {
     if (ytPlayer && ytReady) ytPlayer.stopVideo();
@@ -206,7 +210,7 @@ socket.on('ambience-volume', ({ volume }) => {
   if (roomState && roomState.ambience) roomState.ambience.volume = volume;
   const volSlider = document.getElementById('ambience-volume-slider');
   if (volSlider) volSlider.value = volume;
-  if (ambPlayer && ambReady) {
+  if (ambPlayer && ambReady && (isHost || audioUnlocked)) {
     setAmbVolumeTracked(isHost ? volume : calcGuestAmbienceVolume());
   }
 });
@@ -313,8 +317,8 @@ socket.on('queue-update', queue => {
 // ── YouTube API ───────────────────────────────────
 window.onYouTubeIframeAPIReady = function () {
   ytPlayer = new YT.Player('yt-player', {
-    height: '1', width: '1',
-    playerVars: { autoplay: 0, controls: 0, mute: 1 },
+    height: '200', width: '200',
+    playerVars: { autoplay: 0, controls: 0, mute: 1, disablekb: 1 },
     events: {
       onReady: () => {
         ytReady = true;
@@ -350,12 +354,19 @@ window.onYouTubeIframeAPIReady = function () {
         }
         if (e.data === YT.PlayerState.PLAYING) {
           updatePlayBtn(true);
-          // 버그 1: 일시정지 상태인데 YouTube가 자동 재생을 재개한 경우 강제 정지
-          if (isHost && roomState && !roomState.isPlaying) {
+          // 일시정지 상태여야 하는데 재생이 시작된 경우 강제 정지
+          // (호스트: 유튜브가 자동으로 재생을 재개하는 버그 방지 / 게스트: 직접 클릭해 재생 시도 방지)
+          if (roomState && !roomState.isPlaying) {
             ytPlayer.pauseVideo();
           }
         }
-        if (e.data === YT.PlayerState.PAUSED)  updatePlayBtn(false);
+        if (e.data === YT.PlayerState.PAUSED) {
+          updatePlayBtn(false);
+          // 게스트가 영상을 직접 클릭해 일시정지한 경우 즉시 되돌림 (재생 제어는 호스트 전용)
+          if (!isHost && roomState && roomState.isPlaying) {
+            ytPlayer.playVideo();
+          }
+        }
       }
     }
   });
@@ -371,6 +382,7 @@ window.onYouTubeIframeAPIReady = function () {
           ambPlayer.unMute();
           ambPlayer.setVolume(roomState?.ambience?.volume ?? 60);
         }
+        // room-state/resync-state가 이미 도착해있었다면 그때 저장해둔 상태를 지금 적용
         if (roomState && roomState.ambience) applyAmbienceState(roomState.ambience);
       },
       onError: () => {
@@ -378,6 +390,7 @@ window.onYouTubeIframeAPIReady = function () {
       },
       onStateChange: e => {
         if (e.data === YT.PlayerState.ENDED) {
+          // 앰비언스는 항상 무한 반복
           ambPlayer.seekTo(0, true);
           ambPlayer.playVideo();
         }
@@ -385,6 +398,8 @@ window.onYouTubeIframeAPIReady = function () {
           if (roomState && roomState.ambience && !roomState.ambience.isPlaying) {
             ambPlayer.pauseVideo();
           } else if (ambPendingFadeIn) {
+            // 재생 명령을 보낸 시점이 아니라, 버퍼링이 끝나 실제로 소리가 나기 시작하는
+            // 지금 이 순간부터 페이드를 시작해야 타이밍이 어긋나지 않는다.
             ambPendingFadeIn = false;
             const target = isHost ? (roomState?.ambience?.volume ?? 60) : calcGuestAmbienceVolume();
             fadeAmbVolume(0, target);
@@ -408,6 +423,8 @@ let audioUnlocked = false;
 let pendingBanner  = false; // ytReady 전에 room-state가 먼저 도착한 경우를 위한 플래그
 
 // ── 앰비언스(효과음) ────────────────────────────────
+// 서버에서 온 ambience 객체 하나로 UI와 플레이어 상태를 전부 맞추는 단일 진입점.
+// room-state / resync-state / ambience-update 세 곳에서 공통으로 호출한다.
 function applyAmbienceState(amb) {
   if (roomState) roomState.ambience = amb;
 
@@ -421,28 +438,36 @@ function applyAmbienceState(amb) {
   }
   if (volSlider && amb) volSlider.value = amb.volume;
 
-  if (!ambPlayer || !ambReady) return;
+  if (!ambPlayer || !ambReady) return; // 준비되면 onReady에서 roomState.ambience를 다시 적용함
   if (!amb || !amb.videoId) { ambPlayer.stopVideo(); return; }
 
   if (!amb.isPlaying) {
+    // 재생 중이 아니면 미리 로드해두지 않는다 (페이드/재생 시점과 겹치는 경합 방지).
+    // 이미 로드되어 재생되고 있었다면 페이드아웃 후 정지만 처리한다.
     const wasPlaying = ambPlayer.getPlayerState() === YT.PlayerState.PLAYING;
     if (wasPlaying) fadeOutAndPauseAmb();
     return;
   }
 
+  // 여기부터는 실제로 재생해야 하는 경우
   let loadedId = null;
-  try { loadedId = ambPlayer.getVideoData()?.video_id || null; } catch (e) {}
+  try { loadedId = ambPlayer.getVideoData()?.video_id || null; } catch (e) { /* 초기화 전일 수 있음 */ }
 
   if (loadedId !== amb.videoId) {
+    // 곡이 바뀌었거나 아직 한 번도 로드된 적 없는 경우 — 로드와 동시에 페이드인
     ambPlayer.loadVideoById({ videoId: amb.videoId, startSeconds: amb.currentTime || 0 });
+    // loadVideoById() 직후 곧바로 unMute/setVolume을 보내면, 플레이어가 새 영상으로
+    // 전환하는 짧은 순간에 그 명령이 무시되어 음소거 상태로 남는 경우가 있다.
+    // 아주 짧게 지연을 줘서 이 경합을 피한다.
     setTimeout(() => {
-      if (!roomState?.ambience?.isPlaying) return;
+      if (!roomState?.ambience?.isPlaying) return; // 그 사이 다시 일시정지됐을 수 있음
       applyAmbMuteState();
       fadeInAmbAfterPlay();
     }, 150);
     return;
   }
 
+  // 같은 곡이 이미 로드되어 있는 경우 — 재생/정지 전환과 시간 드리프트만 처리
   applyAmbMuteState();
   const actuallyPlaying = ambPlayer.getPlayerState() === YT.PlayerState.PLAYING;
   if (!actuallyPlaying) {
@@ -466,9 +491,14 @@ function applyAmbMuteState() {
   }
 }
 
+// ── 앰비언스 페이드인/아웃 (2초) ──
+// 효과음 특성상 재생/정지가 뚝 끊기지 않도록, 재생 시작 시 0→목표볼륨으로 서서히 올리고
+// 정지할 때는 목표볼륨→0으로 서서히 낮춘 뒤에 실제로 pauseVideo()한다.
 let ambFadeInterval   = null;
-let ambCurrentVolume  = 0;
-let ambPendingFadeIn  = false;
+let ambCurrentVolume  = 0;     // getVolume()은 iframe에서 값이 돌아올 때까지 지연이 있어 신뢰할 수 없다.
+                                // 우리가 마지막으로 보낸 볼륨을 직접 추적해서 사용한다.
+let ambPendingFadeIn  = false; // "재생 명령을 보낸 시점"이 아니라 "실제로 PLAYING 상태가 된 시점"에
+                                // 페이드를 시작하기 위한 플래그 (버퍼링 지연 때문에 타이밍이 어긋나는 것 방지)
 const AMB_FADE_MS      = 2000;
 const AMB_FADE_STEP_MS = 50;
 
@@ -495,28 +525,23 @@ function fadeAmbVolume(fromVolume, toVolume, onDone) {
   }, AMB_FADE_STEP_MS);
 }
 
+// 정지 전 페이드아웃 후 실제 pauseVideo() 호출
 function fadeOutAndPauseAmb() {
   if (!ambPlayer || !ambReady) return;
-  ambPendingFadeIn = false;
+  ambPendingFadeIn = false; // 혹시 페이드인 대기 중이었다면 취소
   const canHear = isHost || audioUnlocked;
   if (!canHear) { ambPlayer.pauseVideo(); return; }
   fadeAmbVolume(ambCurrentVolume, 0, () => ambPlayer.pauseVideo());
 }
 
+// 재생 명령을 보낼 때 호출 — 실제 소리는 아직 내지 않고(0으로 유지),
+// 실제로 PLAYING 상태가 되는 순간 onStateChange에서 페이드를 시작한다.
 function fadeInAmbAfterPlay() {
   if (!ambPlayer || !ambReady) return;
   const canHear = isHost || audioUnlocked;
   if (!canHear) return;
   setAmbVolumeTracked(0);
   ambPendingFadeIn = true;
-}
-
-// 게스트의 로컬 슬라이더는 BGM뿐 아니라 효과음에도 동일한 비율로 적용된다.
-function calcGuestAmbienceVolume() {
-  const masterVol   = roomState?.ambience?.volume ?? 60;
-  const guestSlider = document.getElementById('guest-volume-slider');
-  const localVol    = guestSlider ? parseInt(guestSlider.value) : 100;
-  return Math.round((masterVol / 100) * localVol);
 }
 
 function playYT(videoId, time) {
@@ -548,7 +573,8 @@ function unlockAudio() {
       ytPlayer.playVideo();
     }
   }
-  // 앰비언스도 함께 언뮤트
+  // 앰비언스도 함께 언뮤트 — 이미 켜져 있었다면 지금 소리가 나야 하고,
+  // 아직 안 켜져 있었다면(케이스 A) 나중에 호스트가 처음 켤 때 audioUnlocked를 보고 자동으로 언뮤트된다(케이스 B).
   if (ambPlayer && ambReady && roomState?.ambience?.videoId) {
     ambPlayer.unMute();
     setAmbVolumeTracked(isHost ? (roomState?.ambience?.volume ?? 60) : calcGuestAmbienceVolume());
@@ -583,6 +609,14 @@ function hideUnlockBanner() {
 // 예) 마스터 60, 로컬 50% → 실제 30 (컴퓨터 볼륨 × 스피커 볼륨 개념)
 function calcGuestVolume() {
   const masterVol   = roomState?.volume ?? 100;
+  const guestSlider = document.getElementById('guest-volume-slider');
+  const localVol    = guestSlider ? parseInt(guestSlider.value) : 100;
+  return Math.round((masterVol / 100) * localVol);
+}
+
+// 게스트의 로컬 슬라이더는 BGM뿐 아니라 효과음(앰비언스)에도 동일한 비율로 적용된다.
+function calcGuestAmbienceVolume() {
+  const masterVol   = roomState?.ambience?.volume ?? 60;
   const guestSlider = document.getElementById('guest-volume-slider');
   const localVol    = guestSlider ? parseInt(guestSlider.value) : 100;
   return Math.round((masterVol / 100) * localVol);
@@ -702,7 +736,7 @@ document.getElementById('volume-slider').oninput = e => {
 };
 
 // Guest local volume (does NOT emit to server — local only)
-// 실제 볼륨 = 마스터(호스트) × 로컬 비율(게스트) / 100
+// 실제 볼륨 = 마스터(호스트) × 로컬 비율(게스트) / 100 — BGM과 효과음 둘 다 적용
 const guestVolSlider = document.getElementById('guest-volume-slider');
 if (guestVolSlider) {
   guestVolSlider.oninput = e => {
@@ -1105,6 +1139,98 @@ function openMoveSong(songId, fromPlaylistId) {
 
 document.getElementById('move-song-cancel').onclick = () => document.getElementById('move-song-modal').classList.add('hidden');
 
+// ── Ambience(효과음) 패널 UI ─────────────────────
+(function() {
+  const toggle = document.getElementById('ambience-toggle');
+  const body   = document.getElementById('ambience-body');
+  const icon   = document.getElementById('ambience-toggle-icon');
+  if (!toggle) return; // 게스트 화면엔 사이드바 자체가 없음
+
+  toggle.addEventListener('click', () => {
+    body.classList.toggle('hidden');
+    icon.textContent = body.classList.contains('hidden') ? '▸' : '▾';
+  });
+
+  document.getElementById('ambience-play-btn').addEventListener('click', () => {
+    if (!roomState?.ambience?.videoId) return;
+    if (roomState.ambience.isPlaying) {
+      const t = (ambPlayer && ambReady) ? ambPlayer.getCurrentTime() : roomState.ambience.currentTime;
+      socket.emit('pause-ambience', { time: t });
+    } else {
+      socket.emit('play-ambience');
+    }
+  });
+
+  const ambVolSlider = document.getElementById('ambience-volume-slider');
+  ambVolSlider.addEventListener('input', () => {
+    socket.emit('ambience-volume', { volume: parseInt(ambVolSlider.value, 10) });
+  });
+
+  // ── 곡 선택 모달 (2단계: 재생목록 -> 곡) ──
+  const pickerModal = document.getElementById('ambience-picker-modal');
+  const pickerList   = document.getElementById('ambience-picker-list');
+  const pickerDesc    = document.getElementById('ambience-picker-desc');
+  const pickerBack    = document.getElementById('ambience-picker-back');
+
+  function renderAmbiencePlaylistStep() {
+    pickerDesc.textContent = '재생목록을 선택하세요';
+    pickerBack.classList.add('hidden');
+    pickerBack.onclick = null;
+    pickerList.innerHTML = '';
+    const playlists = roomState?.playlists || [];
+    if (playlists.length === 0) {
+      const p = document.createElement('p');
+      p.style.cssText = 'color:var(--text-muted);font-size:0.85rem;';
+      p.textContent = '재생목록이 없습니다. 먼저 재생목록을 만들어주세요.';
+      pickerList.appendChild(p);
+      return;
+    }
+    playlists.forEach(pl => {
+      const btn = document.createElement('button');
+      btn.className = 'move-target-btn';
+      btn.textContent = `${pl.name} (${(pl.songs || []).length}곡)`;
+      btn.onclick = () => renderAmbienceSongStep(pl);
+      pickerList.appendChild(btn);
+    });
+  }
+
+  function renderAmbienceSongStep(playlist) {
+    pickerDesc.textContent = `${playlist.name} — 곡을 선택하세요`;
+    pickerBack.classList.remove('hidden');
+    pickerBack.onclick = renderAmbiencePlaylistStep;
+    pickerList.innerHTML = '';
+    const songs = playlist.songs || [];
+    if (songs.length === 0) {
+      const p = document.createElement('p');
+      p.style.cssText = 'color:var(--text-muted);font-size:0.85rem;';
+      p.textContent = '이 재생목록에는 곡이 없습니다.';
+      pickerList.appendChild(p);
+      return;
+    }
+    songs.forEach(song => {
+      const btn = document.createElement('button');
+      btn.className = 'move-target-btn';
+      btn.textContent = song.title;
+      btn.onclick = () => {
+        socket.emit('set-ambience', { song: { videoId: song.videoId, title: song.title } });
+        pickerModal.classList.add('hidden');
+      };
+      pickerList.appendChild(btn);
+    });
+  }
+
+  document.getElementById('ambience-select-btn').addEventListener('click', () => {
+    renderAmbiencePlaylistStep();
+    pickerModal.classList.remove('hidden');
+  });
+  document.getElementById('ambience-picker-cancel').addEventListener('click', () => {
+    pickerModal.classList.add('hidden');
+  });
+  pickerModal.addEventListener('click', e => {
+    if (e.target === pickerModal) pickerModal.classList.add('hidden');
+  });
+})();
+
 // ── Drag & Drop ───────────────────────────────────
 function setupPlaylistDrag(section, idx) {
   const handle = section.querySelector('.playlist-drag-handle');
@@ -1196,7 +1322,7 @@ function updateMiniPlayerPosition() {
     wrap.classList.remove('mini-player-fixed');
     return;
   }
-  // 게스트: fixed 배치, 화면 우측 하단
+  // 게스트: fixed 배치, 테마 버튼 아래
   wrap.classList.add('mini-player-fixed');
   const searchSection = document.getElementById('search-section');
   if (searchSection && !searchSection.classList.contains('collapsed')) {
@@ -1250,8 +1376,10 @@ async function exportPlaylist(pl) {
   _currentSharePl = pl;
   const btn = document.getElementById('share-code-value');
   const hint = document.getElementById('share-code-hint');
+  const songlistHint = document.getElementById('share-songlist-hint');
   btn.textContent = '생성 중...';
   hint.textContent = '코드를 클릭하면 복사됩니다';
+  if (songlistHint) songlistHint.textContent = '';
   document.getElementById('share-code-modal').classList.remove('hidden');
 
   try {
@@ -1277,96 +1405,6 @@ document.getElementById('share-code-value').addEventListener('click', () => {
     setTimeout(() => { document.getElementById('share-code-hint').textContent = '코드를 클릭하면 복사됩니다'; }, 2000);
   });
 });
-
-// ── 엠비언스 UI 이벤트 ────────────────────────────
-const ambienceToggle = document.getElementById('ambience-toggle');
-if (ambienceToggle) {
-  ambienceToggle.addEventListener('click', () => {
-    const body = document.getElementById('ambience-body');
-    const icon = document.getElementById('ambience-toggle-icon');
-    body.classList.toggle('hidden');
-    icon.textContent = body.classList.contains('hidden') ? '▸' : '▾';
-  });
-
-  document.getElementById('ambience-play-btn').addEventListener('click', () => {
-    if (!roomState?.ambience?.videoId) return;
-    if (roomState.ambience.isPlaying) {
-      const t = (ambPlayer && ambReady) ? ambPlayer.getCurrentTime() : roomState.ambience.currentTime;
-      socket.emit('pause-ambience', { time: t });
-    } else {
-      socket.emit('play-ambience');
-    }
-  });
-
-  const ambVolSlider = document.getElementById('ambience-volume-slider');
-  ambVolSlider.addEventListener('input', () => {
-    socket.emit('ambience-volume', { volume: parseInt(ambVolSlider.value, 10) });
-  });
-
-  // ── 곡 선택 모달 (2단계: 재생목록 -> 곡) ──
-  const pickerModal = document.getElementById('ambience-picker-modal');
-  const pickerList  = document.getElementById('ambience-picker-list');
-  const pickerDesc  = document.getElementById('ambience-picker-desc');
-  const pickerBack  = document.getElementById('ambience-picker-back');
-
-  function renderAmbiencePlaylistStep() {
-    pickerDesc.textContent = '재생목록을 선택하세요';
-    pickerBack.classList.add('hidden');
-    pickerBack.onclick = null;
-    pickerList.innerHTML = '';
-    const playlists = roomState?.playlists || [];
-    if (playlists.length === 0) {
-      const p = document.createElement('p');
-      p.style.cssText = 'color:var(--text-muted);font-size:0.85rem;';
-      p.textContent = '재생목록이 없습니다. 먼저 재생목록을 만들어주세요.';
-      pickerList.appendChild(p);
-      return;
-    }
-    playlists.forEach(pl => {
-      const btn = document.createElement('button');
-      btn.className = 'move-target-btn';
-      btn.textContent = `${pl.name} (${(pl.songs || []).length}곡)`;
-      btn.onclick = () => renderAmbienceSongStep(pl);
-      pickerList.appendChild(btn);
-    });
-  }
-
-  function renderAmbienceSongStep(playlist) {
-    pickerDesc.textContent = `${playlist.name} — 곡을 선택하세요`;
-    pickerBack.classList.remove('hidden');
-    pickerBack.onclick = renderAmbiencePlaylistStep;
-    pickerList.innerHTML = '';
-    const songs = playlist.songs || [];
-    if (songs.length === 0) {
-      const p = document.createElement('p');
-      p.style.cssText = 'color:var(--text-muted);font-size:0.85rem;';
-      p.textContent = '이 재생목록에는 곡이 없습니다.';
-      pickerList.appendChild(p);
-      return;
-    }
-    songs.forEach(song => {
-      const btn = document.createElement('button');
-      btn.className = 'move-target-btn';
-      btn.textContent = song.title;
-      btn.onclick = () => {
-        socket.emit('set-ambience', { song: { videoId: song.videoId, title: song.title } });
-        pickerModal.classList.add('hidden');
-      };
-      pickerList.appendChild(btn);
-    });
-  }
-
-  document.getElementById('ambience-select-btn').addEventListener('click', () => {
-    renderAmbiencePlaylistStep();
-    pickerModal.classList.remove('hidden');
-  });
-  document.getElementById('ambience-picker-cancel').addEventListener('click', () => {
-    pickerModal.classList.add('hidden');
-  });
-  pickerModal.addEventListener('click', e => {
-    if (e.target === pickerModal) pickerModal.classList.add('hidden');
-  });
-}
 
 document.getElementById('share-code-close').addEventListener('click', () => {
   document.getElementById('share-code-modal').classList.add('hidden');

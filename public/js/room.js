@@ -1461,6 +1461,18 @@ function getSidebarWidth() {
   return sidebar.getBoundingClientRect().width || parseInt(sidebar.style.width) || 0;
 }
 
+// "사용자가 실제로 원하는 너비"와 "지금 공간이 부족해 화면에 강제로 맞춘 너비"를 구분한다.
+// localStorage에는 오직 사용자가 직접 드래그를 마쳤을 때(mouseup)만 기록되므로,
+// 여기서 읽는 값은 항상 오염되지 않은 "원래 희망 너비"다.
+function getDesiredSidebarWidth() {
+  const saved = localStorage.getItem('jukesync-sidebar-width');
+  return saved ? parseInt(saved, 10) : getSidebarWidth();
+}
+function getDesiredSearchWidth() {
+  const saved = localStorage.getItem('jukesync-search-width');
+  return saved ? parseInt(saved, 10) : getSearchSectionWidth();
+}
+
 // 사이드바/검색창 너비를 한 번에 같이 계산해서 확정한다.
 // (예전에는 두 함수가 서로의 "현재" 렌더링 너비를 각자 따로 읽어가며 계산했는데,
 //  드래그 중처럼 값이 빠르게 바뀌는 상황에서는 그 상호 참조 때문에 진동이 생길 수 있었다.
@@ -1473,25 +1485,29 @@ function enforceLayoutMinimums() {
   const total = window.innerWidth;
   const searchCollapsed = !search || search.classList.contains('collapsed');
 
-  const sidebarWish = getSidebarWidth();
-  const searchWish  = searchCollapsed ? 0 : getSearchSectionWidth();
+  // 화면상 현재 너비가 아니라, 사용자가 실제로 원하는(오염되지 않은) 희망 너비를 기준으로 삼는다.
+  const sidebarWish = getDesiredSidebarWidth();
+  const searchWish  = searchCollapsed ? 0 : getDesiredSearchWidth();
 
   // 1) 사이드바: 활동 로그 최소 200px을 뺀 나머지 안에서 희망 너비까지
   const sidebarFinal = Math.max(0, Math.min(sidebarWish, total - CENTER_MIN_WIDTH));
   // 2) 검색창: 사이드바 확정값 + 활동 로그 200px을 뺀 나머지 안에서 희망 너비까지
   const searchFinal  = searchCollapsed ? 0 : Math.max(0, Math.min(searchWish, total - sidebarFinal - CENTER_MIN_WIDTH));
 
-  if (sidebarFinal !== sidebarWish) {
+  // 화면에는 항상 확정값을 반영하되, "공간이 부족해 어쩔 수 없이 줄인 상태"(< 희망 너비)일 때는
+  // localStorage(=사용자의 진짜 희망 너비)를 덮어쓰지 않는다. 그래야 나중에 공간이 생기거나
+  // 탭을 다시 펼쳤을 때 원래 크기로 정확히 복원된다.
+  if (getSidebarWidth() !== sidebarFinal) {
     sidebar.style.width = sidebarFinal + 'px';
-    localStorage.setItem('jukesync-sidebar-width', sidebarFinal);
+    if (sidebarFinal >= sidebarWish) localStorage.setItem('jukesync-sidebar-width', sidebarFinal);
   }
   const layout = document.querySelector('.room-layout');
   if (layout) layout.style.gridTemplateColumns = `${sidebarFinal}px 1fr auto`;
 
-  if (!searchCollapsed && searchFinal !== searchWish) {
+  if (!searchCollapsed && getSearchSectionWidth() !== searchFinal) {
     search.style.width    = searchFinal + 'px';
     search.style.minWidth = searchFinal < 200 ? searchFinal + 'px' : '';
-    localStorage.setItem('jukesync-search-width', searchFinal);
+    if (searchFinal >= searchWish) localStorage.setItem('jukesync-search-width', searchFinal);
   }
 }
 

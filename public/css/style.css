@@ -882,7 +882,7 @@ a { color: var(--accent); text-decoration: none; }
 }
 .search-section.collapsed {
   width: 0px !important;
-  min-width: 0px;
+  min-width: 0px !important; /* 좁힘 보정으로 들어간 인라인 min-width를 확실히 무력화 */
   border-left: none;
 }
 .search-section.collapsed .search-inner {

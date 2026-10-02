@@ -1502,13 +1502,21 @@ function getSidebarWidth() {
 // "사용자가 실제로 원하는 너비"와 "지금 공간이 부족해 화면에 강제로 맞춘 너비"를 구분한다.
 // localStorage에는 오직 사용자가 직접 드래그를 마쳤을 때(mouseup)만 기록되므로,
 // 여기서 읽는 값은 항상 오염되지 않은 "원래 희망 너비"다.
+// 사용자가 쓸 수 있는 최소 너비. 공간이 부족해 화면상 이보다 좁게 그려질 수는 있어도,
+// "희망 너비"가 이 아래로 저장되지는 않게 해서 다시 넓힐 수 없는 상태를 막는다.
+const SIDEBAR_MIN_WIDTH = 260;
+const SEARCH_MIN_WIDTH  = 200;
+const SEARCH_MAX_WIDTH  = 700;
+
 function getDesiredSidebarWidth() {
   const saved = localStorage.getItem('jukesync-sidebar-width');
-  return saved ? parseInt(saved, 10) : getSidebarWidth();
+  const w = saved ? parseInt(saved, 10) : getSidebarWidth();
+  return Math.max(SIDEBAR_MIN_WIDTH, w || SIDEBAR_MIN_WIDTH);
 }
 function getDesiredSearchWidth() {
   const saved = localStorage.getItem('jukesync-search-width');
-  return saved ? parseInt(saved, 10) : getSearchSectionWidth();
+  const w = saved ? parseInt(saved, 10) : getSearchSectionWidth();
+  return Math.min(SEARCH_MAX_WIDTH, Math.max(SEARCH_MIN_WIDTH, w || SEARCH_MIN_WIDTH));
 }
 
 // 사이드바/검색창 너비를 한 번에 같이 계산해서 확정한다.
@@ -1628,9 +1636,9 @@ window.addEventListener('resize', scheduleLayoutClamp);
   const COLLAPSED_KEY = 'jukesync-search-collapsed';
   const WIDTH_KEY     = 'jukesync-search-width';
 
-  // 너비 복원
-  const savedWidth = localStorage.getItem(WIDTH_KEY);
-  if (savedWidth) section.style.width = savedWidth + 'px';
+  // 너비 복원 — 저장값이 사용 가능 최소치보다 작아도 보정된 값으로 되살린다
+  section.style.width    = getDesiredSearchWidth() + 'px';
+  section.style.minWidth = '';
   // 저장된 값이 현재 창 크기(또는 사이드바 상태)와 안 맞을 수 있으니 로드 시 한 번 보정
   clampSearchToViewport();
 
@@ -1648,11 +1656,15 @@ window.addEventListener('resize', scheduleLayoutClamp);
     localStorage.setItem(COLLAPSED_KEY, isCollapsed ? '1' : '0');
     // 접힌 상태에서는 너비 저장 안 함
     if (!isCollapsed) {
-      const savedWidth = localStorage.getItem('jukesync-search-width');
-      if (savedWidth) section.style.width = savedWidth + 'px';
+      // 좁혀진 채 저장돼 있었더라도 다시 쓸 수 있는 너비로 펼친다
+      section.style.width    = getDesiredSearchWidth() + 'px';
+      section.style.minWidth = '';
       clampSearchToViewport();
     } else {
-      // 검색창이 접혀 공간이 생겼으니, 사이드바가 넓어질 수 있는지는 다시 줄일 필요 없음(그대로 둠)
+      // 좁혀진 상태에서 넣어둔 인라인 min-width가 남아 있으면 접어도 그 폭만큼 빈 띠가 남는다.
+      // (인라인 스타일이 .collapsed 규칙의 min-width:0 보다 우선하기 때문)
+      section.style.minWidth = '';
+      section.style.width    = '';
     }
     updateMiniPlayerPosition();
   });
@@ -1665,18 +1677,25 @@ window.addEventListener('resize', scheduleLayoutClamp);
     resizeHandle.classList.add('dragging');
     section.classList.add('resizing');
 
+    let desiredWidth = startWidth; // 사용자가 의도한 너비 (화면에 그려진 너비와 별개)
+
     function onMove(e) {
-      const delta    = startX - e.clientX; // 왼쪽으로 드래그 = 넓어짐
-      // 사이드바 너비와 활동 로그 최소 200px을 뺀 나머지가 상한 (활동 로그가 검색창보다 우선)
+      const delta = startX - e.clientX; // 왼쪽으로 드래그 = 넓어짐
+      // 사용자가 끌 수 있는 범위는 200~700px로 제한한다.
+      // (0까지 줄어들면 드래그 핸들을 다시 잡을 수 없게 되므로)
+      desiredWidth = Math.min(SEARCH_MAX_WIDTH, Math.max(SEARCH_MIN_WIDTH, startWidth + delta));
+      // 다만 화면에 실제로 그릴 때는 활동 로그 200px 확보가 우선이므로,
+      // 공간이 모자라면 희망 너비보다 좁게(필요하면 200px 미만으로도) 그린다.
       const dynamicMax = window.innerWidth - getSidebarWidth() - CENTER_MIN_WIDTH;
-      const newWidth = Math.min(700, dynamicMax, Math.max(0, startWidth + delta));
-      section.style.width    = newWidth + 'px';
-      section.style.minWidth = newWidth < 200 ? newWidth + 'px' : '';
+      const rendered   = Math.max(0, Math.min(desiredWidth, dynamicMax));
+      section.style.width    = rendered + 'px';
+      section.style.minWidth = rendered < SEARCH_MIN_WIDTH ? rendered + 'px' : '';
     }
     function onUp() {
       resizeHandle.classList.remove('dragging');
       section.classList.remove('resizing');
-      localStorage.setItem(WIDTH_KEY, parseInt(section.style.width));
+      // 그려진 너비가 아니라 "희망 너비"를 저장한다.
+      localStorage.setItem(WIDTH_KEY, desiredWidth);
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
     }

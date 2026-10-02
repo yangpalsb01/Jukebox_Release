@@ -69,6 +69,38 @@ function getSyncedCurrentTime(room) {
   return room.currentTime + Math.max(0, elapsed);
 }
 
+const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+const MAX_SONGS_PER_ROOM = 2000;
+const SONGS_WARN_AT      = 1800;
+
+function sanitizeSong(song) {
+  if (!song || typeof song !== 'object') return null;
+  if (typeof song.videoId !== 'string' || !VIDEO_ID_RE.test(song.videoId)) return null;
+  const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+  return {
+    videoId:      song.videoId,
+    title:        str(song.title, 200) || '(제목 없음)',
+    channelTitle: str(song.channelTitle, 100),
+    memo:         str(song.memo, 300),
+    loop:         !!song.loop,
+  };
+}
+
+function countSongs(room) {
+  const inPlaylists = (room.playlists || []).reduce((n, pl) => n + (pl.songs ? pl.songs.length : 0), 0);
+  return inPlaylists + (room.queue ? room.queue.length : 0);
+}
+
+// 앰비언스(효과음)용 — 메인 BGM과 완전히 동일한 방식으로 경과 시간을 계산한다.
+// 한 바퀴 돌아 반복될 때마다 호스트가 'ambience-ended'를 보내 currentTime이 0으로
+// 초기화되므로(BGM의 'song-ended'와 같은 구조), 값이 무한정 커지지 않는다.
+function getSyncedAmbienceTime(room) {
+  if (!room.ambience) return 0;
+  if (!room.ambience.isPlaying) return room.ambience.currentTime;
+  const elapsed = (Date.now() - (room.ambience.lastTimeUpdate || Date.now())) / 1000;
+  return room.ambience.currentTime + Math.max(0, elapsed);
+}
+
 async function loadRoomsFromDB() {
   const docs = await roomsCol.find({}).toArray();
   docs.forEach(doc => {
@@ -88,6 +120,12 @@ async function saveRoom(room) {
     await roomsCol.replaceOne({ id: room.id }, room, { upsert: true });
   } catch (e) {
     console.error('DB 저장 실패:', e.message);
+    const tooLarge = /BSONObjectTooLarge|document is larger|size must be between/i.test(e.message);
+    io.to(room.id).emit('save-failed', {
+      reason: tooLarge
+        ? '방의 데이터가 너무 커서 저장에 실패했습니다. 곡을 줄여주세요.'
+        : '서버 저장에 실패했습니다. 변경 내용이 유지되지 않을 수 있습니다.',
+    });
   }
 }
 
@@ -378,7 +416,9 @@ io.on('connection', (socket) => {
     }
 
     socket.emit('room-state', { ...sanitizeRoom(room), isHost: socket.isHost });
-    io.to(roomId).emit('user-joined', { nickname: socket.nickname, isHost: socket.isHost });
+    if (room.hostSocketId) {
+      io.to(room.hostSocketId).emit('user-joined', { nickname: socket.nickname, isHost: socket.isHost });
+    }
   });
 
   function hostAction(cb) {
@@ -441,6 +481,16 @@ io.on('connection', (socket) => {
     room.ambience.isPlaying = false;
     if (time !== undefined) room.ambience.currentTime = time;
     io.to(socket.roomId).emit('ambience-update', room.ambience);
+  }));
+
+  // 효과음이 한 바퀴 돌아 반복되는 시점 (BGM의 'song-ended'에 대응)
+  // 서버의 재생 위치 기준점을 0으로 초기화해, 오래 틀어둬도 값이 커지지 않게 한다.
+  socket.on('ambience-ended', () => hostAction(room => {
+    if (!room.ambience || !room.ambience.videoId) return;
+    room.ambience.currentTime    = 0;
+    room.ambience.lastTimeUpdate = Date.now();
+    // 이미 재생 중인 참가자들은 각자 알아서 반복되므로 재생 명령을 다시 보내지 않는다.
+    // (보내면 모두의 효과음이 끊겼다 다시 시작된다)
   }));
 
   socket.on('ambience-volume', ({ volume }) => hostAction(room => {
@@ -615,21 +665,29 @@ io.on('connection', (socket) => {
   socket.on('add-song', ({ playlistId, song }) => {
     const room = rooms[socket.roomId];
     if (!room) return;
-    // 서버 측 곡 필드 검증
-    if (!song || !song.videoId || typeof song.videoId !== 'string' || song.videoId.length > 20) return;
-    if (song.title  && song.title.length  > 200) song.title  = song.title.slice(0, 200);
-    if (song.artist && song.artist.length > 100) song.artist = song.artist.slice(0, 100);
-    if (song.memo   && song.memo.length   > 200) song.memo   = song.memo.slice(0, 200);
-    song.id = uuidv4();
+    const clean = sanitizeSong(song);
+    if (!clean) return socket.emit('error', '곡 정보가 올바르지 않습니다. (유튜브 영상 ID 형식 오류)');
+
+    if (countSongs(room) >= MAX_SONGS_PER_ROOM) {
+      return socket.emit('error',
+        `이 방의 곡 수가 한도(${MAX_SONGS_PER_ROOM}곡)에 도달해 더 추가할 수 없습니다. 사용하지 않는 곡을 삭제해주세요.`);
+    }
+
+    clean.id = uuidv4();
     if (playlistId) {
       const pl = room.playlists.find(p => p.id === playlistId);
       if (pl) {
-        pl.songs.push(song);
+        pl.songs.push(clean);
         io.to(socket.roomId).emit('playlists-update', room.playlists);
       }
     } else {
-      room.queue.push(song);
+      room.queue.push(clean);
       io.to(socket.roomId).emit('queue-update', room.queue);
+    }
+
+    const total = countSongs(room);
+    if (total >= SONGS_WARN_AT) {
+      socket.emit('capacity-warning', { total, max: MAX_SONGS_PER_ROOM });
     }
     saveRoomDebounced(room);
   });
@@ -716,7 +774,8 @@ io.on('connection', (socket) => {
     const key = `${roomId}::${nickname}`;
     pendingLeaves[key] = setTimeout(() => {
       delete pendingLeaves[key];
-      io.to(roomId).emit('user-left', { nickname });
+      const r = rooms[roomId];
+      if (r && r.hostSocketId) io.to(r.hostSocketId).emit('user-left', { nickname });
     }, LEAVE_GRACE_MS);
   });
 });

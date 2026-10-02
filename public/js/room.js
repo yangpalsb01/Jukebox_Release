@@ -136,6 +136,36 @@ socket.on('room-state', state => {
   log(`"${state.name}" 방에 입장했습니다. 코드: ${state.code}`, 'system');
 });
 
+socket.on('capacity-warning', ({ total, max }) => {
+  const msg = `이 방의 곡이 ${total}곡으로 한도(${max}곡)에 근접했습니다. 사용하지 않는 곡을 정리해주세요.`;
+  log(msg, 'error');
+
+  const KEY = `jukesync-capacity-dismissed-${ROOM_ID}`;
+  if (localStorage.getItem(KEY) === '1') return;
+
+  const modal = document.getElementById('capacity-warning-modal');
+  if (!modal) { toast('⚠️ ' + msg, 'error', true); return; }
+  if (!modal.classList.contains('hidden')) return;
+
+  document.getElementById('capacity-warning-text').textContent = msg;
+  document.getElementById('capacity-warning-no-show').checked = false;
+  modal.classList.remove('hidden');
+
+  const close = () => {
+    if (document.getElementById('capacity-warning-no-show')?.checked) {
+      localStorage.setItem(KEY, '1');
+    }
+    modal.classList.add('hidden');
+  };
+  document.getElementById('capacity-warning-close').onclick = close;
+  modal.onclick = e => { if (e.target === modal) close(); };
+});
+
+socket.on('save-failed', ({ reason }) => {
+  toast('⚠️ ' + reason, 'error', true);
+  log(reason, 'error');
+});
+
 socket.on('resync-state', state => {
   if (!roomState) return; // 아직 최초 room-state를 못 받은 상태면 무시 (곧 room-state가 옴)
 
@@ -390,9 +420,16 @@ window.onYouTubeIframeAPIReady = function () {
       },
       onStateChange: e => {
         if (e.data === YT.PlayerState.ENDED) {
-          // 앰비언스는 항상 무한 반복
+          // 앰비언스는 항상 무한 반복 — 각자 되감아 재생한다
           ambPlayer.seekTo(0, true);
           ambPlayer.playVideo();
+          // 호스트만 서버에 알려 재생 위치 기준점을 0으로 초기화시킨다.
+          // (BGM의 song-ended와 같은 구조. 이게 없으면 서버의 currentTime이 무한정 커진다)
+          if (isHost && !ambEndedLock) {
+            ambEndedLock = true;
+            socket.emit('ambience-ended');
+            setTimeout(() => { ambEndedLock = false; }, 3000);
+          }
         }
         if (e.data === YT.PlayerState.PLAYING) {
           if (roomState && roomState.ambience && !roomState.ambience.isPlaying) {
@@ -456,11 +493,11 @@ function applyAmbienceState(amb) {
   if (loadedId !== amb.videoId) {
     // 곡이 바뀌었거나 아직 한 번도 로드된 적 없는 경우 — 로드와 동시에 페이드인
     ambPlayer.loadVideoById({ videoId: amb.videoId, startSeconds: amb.currentTime || 0 });
-    // loadVideoById() 직후 곧바로 unMute/setVolume을 보내면, 플레이어가 새 영상으로
-    // 전환하는 짧은 순간에 그 명령이 무시되어 음소거 상태로 남는 경우가 있다.
-    // 아주 짧게 지연을 줘서 이 경합을 피한다.
-    setTimeout(() => {
-      if (!roomState?.ambience?.isPlaying) return; // 그 사이 다시 일시정지됐을 수 있음
+    // 상태 메시지가 짧은 간격으로 두 번 오면 이 예약이 중복으로 걸려
+    // 페이드가 도중에 0으로 되돌아갔다가 다시 올라가는 현상이 생긴다. 이전 예약은 취소한다.
+    clearTimeout(ambLoadTimer);
+    ambLoadTimer = setTimeout(() => {
+      if (!roomState?.ambience?.isPlaying) return;
       applyAmbMuteState();
       fadeInAmbAfterPlay();
     }, 150);
@@ -497,6 +534,8 @@ function applyAmbMuteState() {
 let ambFadeInterval   = null;
 let ambCurrentVolume  = 0;     // getVolume()은 iframe에서 값이 돌아올 때까지 지연이 있어 신뢰할 수 없다.
                                 // 우리가 마지막으로 보낸 볼륨을 직접 추적해서 사용한다.
+let ambEndedLock      = false; // 반복 시 ambience-ended가 중복 전송되는 것을 막는 잠금
+let ambLoadTimer      = null;  // 곡 로드 후 페이드 시작을 미뤄두는 예약 (중복 방지용)
 let ambPendingFadeIn  = false; // "재생 명령을 보낸 시점"이 아니라 "실제로 PLAYING 상태가 된 시점"에
                                 // 페이드를 시작하기 위한 플래그 (버퍼링 지연 때문에 타이밍이 어긋나는 것 방지)
 const AMB_FADE_MS      = 2000;
@@ -833,11 +872,11 @@ function updateNowPlaying(song) {
   const bigArt   = document.getElementById('guest-big-art');
   const anim     = document.getElementById('guest-anim');
   if (bigTitle) bigTitle.innerHTML = song
-    ? `<a class="song-yt-link guest-title-link" href="https://www.youtube.com/watch?v=${song.videoId}" target="_blank" rel="noopener" title="YouTube에서 열기">${esc(song.title)}</a>`
+    ? `<a class="song-yt-link guest-title-link" href="https://www.youtube.com/watch?v=${esc(song.videoId)}" target="_blank" rel="noopener" title="YouTube에서 열기">${esc(song.title)}</a>`
     : '재생 중인 곡 없음';
   if (bigCh)    bigCh.textContent    = song ? (song.channelTitle || '—') : '—';
   if (bigArt)   bigArt.innerHTML     = song
-    ? `<img src="https://img.youtube.com/vi/${song.videoId}/hqdefault.jpg" alt="" />`
+    ? `<img src="https://img.youtube.com/vi/${esc(song.videoId)}/hqdefault.jpg" alt="" />`
     : '♪';
   if (anim) anim.style.display = song ? '' : 'none';
 }
@@ -953,9 +992,9 @@ function renderSongs(songs, playlistId, containerId) {
 
     item.innerHTML = `
       <div class="song-drag-handle">⠿</div>
-      <img class="song-thumb" src="https://img.youtube.com/vi/${song.videoId}/default.jpg" alt="" loading="lazy" />
+      <img class="song-thumb" src="https://img.youtube.com/vi/${esc(song.videoId)}/default.jpg" alt="" loading="lazy" />
       <div class="song-info">
-        <p class="song-title"><a class="song-yt-link" href="https://www.youtube.com/watch?v=${song.videoId}" target="_blank" rel="noopener" title="YouTube에서 열기">${esc(song.title)}</a></p>
+        <p class="song-title"><a class="song-yt-link" href="https://www.youtube.com/watch?v=${esc(song.videoId)}" target="_blank" rel="noopener" title="YouTube에서 열기">${esc(song.title)}</a></p>
         <p class="song-ch">${esc(song.channelTitle || '')}</p>
         ${song.memo ? `<p class="song-memo">${esc(song.memo)}</p>` : ''}
       </div>

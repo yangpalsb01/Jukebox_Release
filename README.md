@@ -58,8 +58,11 @@ YouTube 링크로 곡을 추가하고, 방을 만들어 친구들과 공유하�
    | 항목 | 값 |
    |------|-----|
    | **Language** | Node |
-   | **Build Command** | `npm install` |
+   | **Build Command** | `npm install && npm update` |
    | **Start Command** | `node server.js` |
+
+   > 💡 이미 배포해두신 분은 Render 대시보드 → 해당 서비스 → **Settings** → **Build Command**를 위 값으로 바꿔주세요.  
+   > 배포할 때마다 호환되는 범위 안의 최신 버전이 설치되어, 보안 경고가 쌓이지 않습니다.
 
 5. 아래로 스크롤해서 **Environment Variables** 항목을 찾으세요.  
    **Add Environment Variable** 버튼으로 아래 항목들을 추가하세요:

@@ -642,6 +642,25 @@ io.on('connection', (socket) => {
     await deleteRoom(roomId);
   }));
 
+  // 곡 메모 수정 — 호스트 전용
+  socket.on('update-song-memo', ({ playlistId, songId, memo }) => hostAction(room => {
+    let song;
+    if (playlistId) {
+      const pl = room.playlists.find(p => p.id === playlistId);
+      if (pl) song = pl.songs.find(s => s.id === songId);
+    } else {
+      song = room.queue.find(s => s.id === songId);
+    }
+    if (!song) return;
+    song.memo = typeof memo === 'string' ? memo.slice(0, 300) : '';
+    if (playlistId) {
+      io.to(socket.roomId).emit('playlists-update', room.playlists);
+    } else {
+      io.to(socket.roomId).emit('queue-update', room.queue);
+    }
+    saveRoomDebounced(room);
+  }));
+
   socket.on('toggle-song-loop', ({ playlistId, songId }) => {
     const room = rooms[socket.roomId];
     if (!room) return;

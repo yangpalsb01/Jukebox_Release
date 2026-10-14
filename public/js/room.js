@@ -995,8 +995,11 @@ function renderSongs(songs, playlistId, containerId) {
       <img class="song-thumb" src="https://img.youtube.com/vi/${esc(song.videoId)}/default.jpg" alt="" loading="lazy" />
       <div class="song-info">
         <p class="song-title"><a class="song-yt-link" href="https://www.youtube.com/watch?v=${esc(song.videoId)}" target="_blank" rel="noopener" title="YouTube에서 열기">${esc(song.title)}</a></p>
-        <p class="song-ch">${esc(song.channelTitle || '')}</p>
-        ${song.memo ? `<p class="song-memo">${esc(song.memo)}</p>` : ''}
+        <div class="song-ch-row">
+          <p class="song-ch">${esc(song.channelTitle || '')}</p>
+          ${(isHost && !song.memo) ? `<button class="js-add-memo song-memo-add" title="메모 추가">＋</button>` : ''}
+        </div>
+        ${song.memo ? `<p class="song-memo${isHost ? ' song-memo--editable' : ''}"${isHost ? ' title="클릭해서 메모 수정"' : ''}>${esc(song.memo)}</p>` : ''}
       </div>
       <div class="song-actions">
         ${isHost ? `<button class="btn btn--icon btn--play-song js-play-song" title="재생">▶</button>` : ''}
@@ -1016,6 +1019,17 @@ function renderSongs(songs, playlistId, containerId) {
         e.stopPropagation();
         socket.emit('toggle-song-loop', { playlistId: playlistId || null, songId: song.id });
       });
+      // 메모 추가(＋) / 기존 메모 클릭 → 그 자리에서 바로 편집
+      const addBtn  = item.querySelector('.js-add-memo');
+      const memoEl  = item.querySelector('.song-memo--editable');
+      if (addBtn) addBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        startMemoEdit(item, song, playlistId, '');
+      });
+      if (memoEl) memoEl.addEventListener('click', e => {
+        e.stopPropagation();
+        startMemoEdit(item, song, playlistId, song.memo || '');
+      });
     }
     item.querySelector('.js-move-song').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1029,6 +1043,52 @@ function renderSongs(songs, playlistId, containerId) {
     setupSongDrag(item, idx, playlistId);
     el.appendChild(item);
   });
+}
+
+// 곡 행 안에서 메모를 바로 편집한다. 저장은 Enter 또는 포커스 해제, 취소는 Esc.
+function startMemoEdit(item, song, playlistId, current) {
+  if (item.querySelector('.song-memo-input')) return; // 이미 편집 중
+  const info = item.querySelector('.song-info');
+  if (!info) return;
+
+  const addBtn = item.querySelector('.js-add-memo');
+  if (addBtn) addBtn.style.display = 'none';
+  const memoEl = item.querySelector('.song-memo');
+  if (memoEl) memoEl.style.display = 'none';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'song-memo-input';
+  input.value = current;
+  input.maxLength = 300;
+  input.placeholder = '메모 입력...';
+  info.appendChild(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  const finish = (save) => {
+    if (done) return;
+    done = true;
+    const val = input.value.trim();
+    input.remove();
+    if (save && val !== current) {
+      // 서버가 갱신된 목록을 다시 내려주므로 화면은 그때 새로 그려진다
+      socket.emit('update-song-memo', { playlistId: playlistId || null, songId: song.id, memo: val });
+    } else {
+      if (addBtn) addBtn.style.display = '';
+      if (memoEl) memoEl.style.display = '';
+    }
+  };
+
+  input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter')  { e.preventDefault(); finish(true); }
+    if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+  // 편집 중 드래그로 행이 움직이지 않도록
+  input.addEventListener('mousedown', e => e.stopPropagation());
 }
 
 function renderQueue(queue) {

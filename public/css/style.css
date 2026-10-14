@@ -392,7 +392,39 @@ a { color: var(--accent); text-decoration: none; }
   overflow: hidden; 
   text-overflow: ellipsis; 
 }
-.song-ch { font-size: 0.68rem; color: var(--text-muted); }
+.song-ch-row {
+  display: flex; align-items: center; gap: 0.3rem; min-width: 0;
+}
+.song-ch {
+  font-size: 0.68rem; color: var(--text-muted);
+  flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* 메모가 없는 곡에만 나타나는 추가 버튼 — 평소 숨김, 행에 마우스를 올리면 표시 */
+.song-memo-add {
+  flex-shrink: 0;
+  background: none; border: none; cursor: pointer;
+  /* 아티스트명(.song-ch)과 같은 크기·색으로 맞춰 눈에 덜 띄게 한다 */
+  color: var(--text-muted); font-size: 0.68rem; font-weight: 400; line-height: 1;
+  padding: 0 0.15rem; opacity: 0; transition: opacity 0.12s, color 0.1s;
+  font-family: 'Noto Sans KR', sans-serif;
+}
+.song-item:hover .song-memo-add { opacity: 1; }
+.song-memo-add:hover { color: var(--accent); }
+
+/* 클릭해서 수정할 수 있는 메모 */
+.song-memo--editable { cursor: text; }
+.song-memo--editable:hover { color: var(--accent); }
+
+/* 행 안에서 바로 쓰는 메모 입력창 */
+.song-memo-input {
+  width: 100%; margin-top: 1px;
+  font-size: 0.67rem; font-style: italic;
+  font-family: 'Noto Sans KR', sans-serif;
+  color: var(--text);
+  background: var(--surface); border: 1px solid var(--accent);
+  border-radius: 3px; padding: 1px 4px; outline: none;
+}
 .song-actions { 
   display: flex; 
   opacity: 0; 

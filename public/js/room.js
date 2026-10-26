@@ -259,6 +259,7 @@ socket.on('user-left',   ({ nickname }) => log(`${nickname}님이 퇴장했습�
 socket.on('host-changed', () => { /* 호스트 변경 — 게스트 권한 유지 */ });
 
 socket.on('play-song', ({ song }) => {
+  cancelFadeOut(); // 곡이 바뀌면 진행 중인 페이드를 취소
   updateNowPlaying(song);
   if (roomState) { roomState.currentSong = song; roomState.isPlaying = true; }
   songEndedLock = false; // 새 곡 시작 시 lock 해제
@@ -274,6 +275,7 @@ socket.on('play-song', ({ song }) => {
 });
 
 socket.on('play', ({ videoId, time }) => {
+  cancelFadeOut(); // 페이드 도중 재생되면 페이드를 취소하고 볼륨 복구
   if (roomState) roomState.isPlaying = true;
   if (ytPlayer && ytReady) {
     if (videoId) ytPlayer.loadVideoById(videoId, time || 0);
@@ -293,14 +295,23 @@ socket.on('play', ({ videoId, time }) => {
 
 socket.on('pause', ({ time }) => {
   if (roomState) roomState.isPlaying = false;
-  // 페이드아웃 진행 중이었다면 타이머 정리
-  if (fadeTimer) {
-    clearInterval(fadeTimer);
-    fadeTimer = null;
-    const fb = document.getElementById('btn-fadeout');
-    if (fb) { fb.style.opacity = ''; fb.style.pointerEvents = ''; }
+  // 페이드아웃 진행 중이었다면 타이머만 정리한다 (볼륨 복구는 정지시킨 뒤에)
+  if (fadeTimer) { clearInterval(fadeTimer); fadeTimer = null; }
+
+  if (ytPlayer && ytReady) {
+    ytPlayer.pauseVideo();
+    if (time !== undefined) ytPlayer.seekTo(time, true);
+    // 정지가 적용된 뒤에 볼륨을 되돌린다.
+    // 되돌리기를 먼저 하면 정지 직전에 원래 음량이 잠깐 새어나온다.
+    if (fadeRestoreVol !== null) {
+      const v = fadeRestoreVol;
+      fadeRestoreVol = null;
+      setTimeout(() => { if (ytPlayer && ytReady) ytPlayer.setVolume(v); }, 60);
+    }
+  } else {
+    fadeRestoreVol = null;
   }
-  if (ytPlayer && ytReady) { ytPlayer.pauseVideo(); if (time !== undefined) ytPlayer.seekTo(time, true); }
+  setFadeBtnBusy(false);
   updatePlayBtn(false);
   const gIcon2 = document.getElementById('guest-playing-icon'); if (gIcon2) gIcon2.textContent = '⏸';
 });
@@ -312,6 +323,7 @@ socket.on('volume', ({ volume }) => {
 });
 
 socket.on('stop', () => {
+  cancelFadeOut();
   if (ytPlayer && ytReady) ytPlayer.stopVideo();
   updatePlayBtn(false);
   updateNowPlaying(null);
@@ -668,6 +680,13 @@ function applyVolume(vol) {
   if (volLabel)  volLabel.textContent = vol;
   if (volSlider) volSlider.value = vol;
 
+  // 페이드아웃 진행 중에는 실제 볼륨을 건드리지 않는다.
+  // (건드리면 줄어들던 소리가 순간 원래대로 튄다) 대신 복구할 목표값만 갱신한다.
+  if (fadeTimer) {
+    fadeRestoreVol = isHost ? vol : calcGuestVolume();
+    return;
+  }
+
   if (isHost) {
     if (ytPlayer && ytReady) ytPlayer.setVolume(vol);
   } else {
@@ -730,23 +749,47 @@ document.getElementById('btn-repeat').onclick  = () => isHost && socket.emit('to
 
 // 페이드아웃 정지 (3초)
 let fadeTimer = null;
-document.getElementById('btn-fadeout').addEventListener('click', () => {
-  if (!isHost || !ytPlayer || !ytReady) return;
+const FADE_OUT_MS = 3000; // 페이드아웃 길이
+
+// 페이드 시작 전 볼륨. 페이드가 끝나고 실제로 일시정지된 뒤에 이 값으로 되돌린다.
+let fadeRestoreVol = null;
+
+// 페이드아웃을 취소하고 볼륨을 즉시 원래대로 되돌린다.
+// (페이드 도중 재생/일시정지/곡 변경 등이 일어난 경우)
+function cancelFadeOut(restore = true) {
+  if (fadeTimer) { clearInterval(fadeTimer); fadeTimer = null; }
+  if (restore && fadeRestoreVol !== null && ytPlayer && ytReady) {
+    ytPlayer.setVolume(fadeRestoreVol);
+  }
+  fadeRestoreVol = null;
+  setFadeBtnBusy(false);
+}
+
+function setFadeBtnBusy(busy) {
+  const btn = document.getElementById('btn-fadeout');
+  if (btn) {
+    btn.style.opacity = busy ? '0.5' : '';
+    btn.style.pointerEvents = busy ? 'none' : '';
+  }
+  const vs = document.getElementById('volume-slider');
+  if (vs) vs.disabled = busy;
+}
+
+// 각자의 브라우저에서 자기 볼륨을 0까지 줄인다.
+// onDone은 호스트에서만 넘어오며, 거기서 서버에 일시정지를 요청한다.
+function startFadeOut(duration, onDone) {
+  if (!ytPlayer || !ytReady) return;
   if (ytPlayer.getPlayerState() !== YT.PlayerState.PLAYING) return;
   if (fadeTimer) return; // 이미 페이드 중
 
-  const DURATION = 3000; // 3초
-  const INTERVAL = 50;   // 50ms 간격
-  const steps = DURATION / INTERVAL;
-  const startVol = ytPlayer.getVolume();
+  const INTERVAL = 50;
+  const steps    = Math.max(1, Math.round(duration / INTERVAL));
+  // 호스트는 마스터 볼륨, 게스트는 로컬 비율이 반영된 볼륨에서 시작한다
+  const startVol = isHost ? (roomState?.volume ?? 80) : calcGuestVolume();
+  fadeRestoreVol = startVol;
   let step = 0;
 
-  const btn = document.getElementById('btn-fadeout');
-  btn.style.opacity = '0.5';
-  btn.style.pointerEvents = 'none';
-  const volSlider = document.getElementById('volume-slider');
-  if (volSlider) volSlider.disabled = true;
-
+  setFadeBtnBusy(true);
   fadeTimer = setInterval(() => {
     step++;
     const vol = Math.max(0, Math.round(startVol * (1 - step / steps)));
@@ -754,18 +797,26 @@ document.getElementById('btn-fadeout').addEventListener('click', () => {
     if (step >= steps) {
       clearInterval(fadeTimer);
       fadeTimer = null;
-      const t = ytPlayer.getCurrentTime();
-      socket.emit('pause', { time: t });
-      // 볼륨 원상복구
-      setTimeout(() => {
-        ytPlayer.setVolume(startVol);
-        btn.style.opacity = '';
-        btn.style.pointerEvents = '';
-        const vs = document.getElementById('volume-slider');
-        if (vs) vs.disabled = false;
-      }, 100);
+      if (onDone) onDone();
+      // 볼륨 복구는 여기서 하지 않는다.
+      // 실제로 일시정지가 적용된 뒤(pause 수신 시)에 해야 끝에서 소리가 튀지 않는다.
     }
   }, INTERVAL);
+}
+
+document.getElementById('btn-fadeout').addEventListener('click', () => {
+  if (!isHost || !ytPlayer || !ytReady) return;
+  if (ytPlayer.getPlayerState() !== YT.PlayerState.PLAYING) return;
+  if (fadeTimer) return;
+  // 모두가 동시에 페이드를 시작하도록 서버에 알린다 (호스트 자신도 수신해서 시작)
+  socket.emit('fade-out', { duration: FADE_OUT_MS });
+});
+
+socket.on('fade-out', ({ duration }) => {
+  startFadeOut(duration, isHost ? () => {
+    // 페이드가 끝난 시점에 호스트만 일시정지를 요청한다
+    socket.emit('pause', { time: ytPlayer.getCurrentTime() });
+  } : null);
 });
 
 document.getElementById('volume-slider').oninput = e => {
@@ -781,7 +832,8 @@ if (guestVolSlider) {
   guestVolSlider.oninput = e => {
     const label = document.getElementById('guest-vol-label');
     if (label) label.textContent = e.target.value;
-    if (ytPlayer && ytReady) ytPlayer.setVolume(calcGuestVolume());
+    if (fadeTimer) { fadeRestoreVol = calcGuestVolume(); }
+    else if (ytPlayer && ytReady) ytPlayer.setVolume(calcGuestVolume());
     if (ambPlayer && ambReady && audioUnlocked && roomState?.ambience?.videoId) {
       setAmbVolumeTracked(calcGuestAmbienceVolume());
     }

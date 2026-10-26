@@ -437,6 +437,13 @@ io.on('connection', (socket) => {
     io.to(socket.roomId).emit('play', { videoId: videoId || room.currentSong?.videoId, time: room.currentTime });
   }));
 
+  // 페이드아웃 시작 — 볼륨 단계를 일일이 보내지 않고 "지금부터 N초간 줄여라"만 전달한다.
+  // 각자의 브라우저가 자기 볼륨(게스트는 로컬 비율 반영)을 기준으로 알아서 줄인다.
+  socket.on('fade-out', ({ duration }) => hostAction(room => {
+    const ms = Math.min(10000, Math.max(500, Number(duration) || 3000));
+    io.to(socket.roomId).emit('fade-out', { duration: ms });
+  }));
+
   socket.on('pause', ({ time }) => hostAction(room => {
     room.isPlaying = false;
     if (time !== undefined) room.currentTime = time;

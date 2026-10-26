@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node server.js"
   },
+  "engines": {
+    "node": ">=24.22.1 <25"
+  },
   "dependencies": {
     "dotenv": "^16.6.1",
     "express": "^4.22.3",
